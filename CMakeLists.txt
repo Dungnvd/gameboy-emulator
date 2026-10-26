@@ -9,4 +9,9 @@ find_package(SDL2 REQUIRED)
 
 add_executable(gbemu src/main.cpp)
 target_link_libraries(gbemu PRIVATE SDL2::SDL2)
-target_compile_options(gbemu PRIVATE -Wall -Wextra -Wpedantic)
+
+if(MSVC)
+    target_compile_options(gbemu PRIVATE /W4)
+else()
+    target_compile_options(gbemu PRIVATE -Wall -Wextra -Wpedantic)
+endif()
