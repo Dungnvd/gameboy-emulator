@@ -1,4 +1,4 @@
-//Don't let SDL rename main() on Windows
+// Don't let SDL rename main() on Windows
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 
@@ -55,7 +55,10 @@ namespace {
                     running = false;
                 }
                 else if (e.type == SDL_KEYDOWN && e.key.repeat == 0) {
-                    if (e.key.keysym.sym == SDLK_SPACE) {
+                    if (e.key.keysym.sym == SDLK_ESCAPE){
+                        running = false;
+                    }
+                    else if (e.key.keysym.sym == SDLK_SPACE) {
                         colorIndex = (colorIndex + 1) % kPalette.size();
                     }
                 }
