@@ -1,6 +1,9 @@
 // Don't let SDL rename main() on Windows
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_sdlrenderer2.h"
 
 #include <array>
 #include <cstddef>
@@ -45,12 +48,18 @@ namespace {
             return 1;
         }
 
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGui_ImplSDL2_InitForSDLRenderer(window.get(), renderer.get());
+        ImGui_ImplSDLRenderer2_Init(renderer.get());
+
         std::size_t colorIndex = kPalette.size() - 1;
         bool running = true;
         
         while (running) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
+                ImGui_ImplSDL2_ProcessEvent(&e);
                 if (e.type == SDL_QUIT) {
                     running = false;
                 }
@@ -64,11 +73,32 @@ namespace {
                 }
             }
 
+            // Start a new ImGui frame
+            ImGui_ImplSDLRenderer2_NewFrame();
+            ImGui_ImplSDL2_NewFrame();
+            ImGui::NewFrame();
+
+            // Describe UI
+            ImGui::Begin("Debug");
+            ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+            ImGui::Text("Color index: %zu", colorIndex);
+            if(ImGui::Button("Next color")){
+                colorIndex = (colorIndex + 1) % kPalette.size();
+            }
+            ImGui::End();
+
+            // Draw: background first, then ImGui on top
+            ImGui::Render();
             const Color& c = kPalette[colorIndex];
             SDL_SetRenderDrawColor(renderer.get(), c.r, c.g, c.b, 0xFF);
             SDL_RenderClear(renderer.get());
+            ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer.get());
             SDL_RenderPresent(renderer.get());
         }
+
+        ImGui_ImplSDLRenderer2_Shutdown();
+        ImGui_ImplSDL2_Shutdown();
+        ImGui::DestroyContext();
 
         return 0;
     }

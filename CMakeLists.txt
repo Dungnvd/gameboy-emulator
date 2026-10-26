@@ -28,7 +28,7 @@ target_include_directories(imgui PUBLIC
 target_link_libraries(imgui PUBLIC SDL2::SDL2)
 
 add_executable(gbemu src/main.cpp)
-target_link_libraries(gbemu PRIVATE SDL2::SDL2)
+target_link_libraries(gbemu PRIVATE imgui)
 
 if(MSVC)
     target_compile_options(gbemu PRIVATE /W4)
