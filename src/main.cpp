@@ -55,7 +55,7 @@ namespace {
 
         std::size_t colorIndex = kPalette.size() - 1;
         bool running = true;
-        
+
         while (running) {
             SDL_Event e;
             while (SDL_PollEvent(&e)) {
@@ -63,8 +63,8 @@ namespace {
                 if (e.type == SDL_QUIT) {
                     running = false;
                 }
-                else if (e.type == SDL_KEYDOWN && e.key.repeat == 0) {
-                    if (e.key.keysym.sym == SDLK_ESCAPE){
+                else if (e.type == SDL_KEYDOWN && e.key.repeat == 0 && !ImGui::GetIO().WantCaptureKeyboard) {
+                    if (e.key.keysym.sym == SDLK_ESCAPE) {
                         running = false;
                     }
                     else if (e.key.keysym.sym == SDLK_SPACE) {
@@ -82,8 +82,11 @@ namespace {
             ImGui::Begin("Debug");
             ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
             ImGui::Text("Color index: %zu", colorIndex);
-            if(ImGui::Button("Next color")){
+            if (ImGui::Button("Next color")) {
                 colorIndex = (colorIndex + 1) % kPalette.size();
+            }
+            if (ImGui::Button("Previous color")) {
+                colorIndex = (colorIndex + kPalette.size() - 1) % kPalette.size();
             }
             ImGui::End();
 
@@ -108,7 +111,7 @@ int main(int argc, char* argv[]) {
     SDL_SetMainReady();
     (void)argc;
     (void)argv;
-    
+
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return 1;
@@ -118,5 +121,5 @@ int main(int argc, char* argv[]) {
     SDL_Quit();
 
     return result;
- 
+
 }
