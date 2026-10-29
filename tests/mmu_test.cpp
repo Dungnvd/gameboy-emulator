@@ -67,3 +67,24 @@ TEST(Mmu, Write16IsLittleEndian) {
     EXPECT_EQ(mmu.read(0xC000), 0xEF);
     EXPECT_EQ(mmu.read(0xC001), 0xBE);
 }
+
+TEST(Mmu, EchoRamEndBoundary) {
+    Mmu mmu;
+    mmu.write(0xDDFF, 0x12);
+    EXPECT_EQ(mmu.read(0xFDFF), 0x12);  // 0xFDFF - 0x2000 = 0xDDFF
+
+    mmu.write(0xDE00, 0x12);
+    mmu.write(0xFE00, 0x34);
+    EXPECT_EQ(mmu.read(0xDE00), 0x12);  // WRAM not overide
+    EXPECT_EQ(mmu.read(0xFE00), 0x34);  // OAM get right value
+}
+
+TEST(Mmu, Write16WrapsAroundAt0xFFFF) {
+    std::vector<std::uint8_t> rom(0x8000, 0x00);
+
+    Mmu mmu;
+    mmu.loadRom(rom);
+    mmu.write16(0xFFFF, 0xBEEF);
+    EXPECT_EQ(mmu.read(0xFFFF), 0xEF);
+    EXPECT_EQ(mmu.read(0x0000), 0x00);
+}
