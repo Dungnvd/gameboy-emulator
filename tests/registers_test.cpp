@@ -5,6 +5,13 @@
 using gb::Flag;
 using gb::Registers;
 
+TEST(Registers, AfCombinesAAndF) {
+    Registers r;
+    r.a = 0x12;
+    r.f = 0xB0;
+    EXPECT_EQ(r.af(), 0x12B0);
+}
+
 TEST(Registers, BcCombinesBAndC) {
     Registers r;
     r.b = 0x12;
@@ -12,11 +19,18 @@ TEST(Registers, BcCombinesBAndC) {
     EXPECT_EQ(r.bc(), 0x1234);
 }
 
-TEST(Registers, SetHlSplitsIntoHAndL) {
+TEST(Registers, DeCombinesDAndE) {
     Registers r;
-    r.setHl(0xBEEF);
-    EXPECT_EQ(r.h, 0xBE);
-    EXPECT_EQ(r.l, 0xEF);
+    r.d = 0x12;
+    r.e = 0x34;
+    EXPECT_EQ(r.de(), 0x1234);
+}
+
+TEST(Registers, HlCombinesHAndL) {
+    Registers r;
+    r.h = 0x12;
+    r.l = 0x34;
+    EXPECT_EQ(r.hl(), 0x1234);
 }
 
 TEST(Registers, SetAfClearsLowNibbleOfF) {
@@ -24,6 +38,27 @@ TEST(Registers, SetAfClearsLowNibbleOfF) {
     r.setAf(0x12FF);
     EXPECT_EQ(r.a, 0x12);
     EXPECT_EQ(r.f, 0xF0);  // Low 4 bits of F are always 0
+}
+
+TEST(Registers, SetBcSplitsIntoBAndC) {
+    Registers r;
+    r.setBc(0x12FF);
+    EXPECT_EQ(r.b, 0x12);
+    EXPECT_EQ(r.c, 0xFF);
+}
+
+TEST(Registers, SetDeSplitsIntoDAndE) {
+    Registers r;
+    r.setDe(0x12FF);
+    EXPECT_EQ(r.d, 0x12);
+    EXPECT_EQ(r.e, 0xFF);
+}
+
+TEST(Registers, SetHlSplitsIntoHAndL) {
+    Registers r;
+    r.setHl(0xBEEF);
+    EXPECT_EQ(r.h, 0xBE);
+    EXPECT_EQ(r.l, 0xEF);
 }
 
 TEST(Registers, SetFlagOnlyTouchesThatBit) {

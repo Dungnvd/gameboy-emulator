@@ -1,6 +1,7 @@
 #include "core/registers.h"
 
 namespace gb {
+
 std::uint16_t Registers::af() const { return static_cast<std::uint16_t>((a << 8) | f); }
 std::uint16_t Registers::bc() const { return static_cast<std::uint16_t>((b << 8) | c); }
 std::uint16_t Registers::de() const { return static_cast<std::uint16_t>((d << 8) | e); }
@@ -18,7 +19,7 @@ void Registers::setBc(std::uint16_t value) {
 
 void Registers::setDe(std::uint16_t value) {
     d = static_cast<std::uint8_t>(value >> 8);
-    c = static_cast<std::uint8_t>(value & 0xFF);
+    e = static_cast<std::uint8_t>(value & 0xFF);
 }
 
 void Registers::setHl(std::uint16_t value) {
