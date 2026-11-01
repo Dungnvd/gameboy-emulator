@@ -39,6 +39,7 @@ endfunction()
 add_library(gbcore STATIC
     src/core/registers.cpp
     src/core/mmu.cpp
+    src/core/cpu.cpp
 )
 
 target_include_directories(gbcore PUBLIC src)
@@ -59,6 +60,7 @@ enable_testing()
 add_executable(gbcore_tests
     tests/registers_test.cpp
     tests/mmu_test.cpp
+    tests/cpu_test.cpp
 )
 target_link_libraries(gbcore_tests PRIVATE gbcore GTest::gtest_main)
 gbemu_set_warnings(gbcore_tests)

@@ -1,6 +1,7 @@
 #include "core/mmu.h"
 
 namespace gb {
+
 void Mmu::loadRom(const std::vector<std::uint8_t>& rom) { rom_ = rom; }
 
 std::uint8_t Mmu::read(std::uint16_t addr) const {
