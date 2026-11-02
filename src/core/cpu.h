@@ -25,10 +25,22 @@ public:
 
 private:
     std::uint8_t fetch8();
+    std::uint16_t fetch16();
 
     // 3-bit (r8) register index: 0 = B, 1 = C, 2 = D, 3 = E, 4 = H, 5 = L, 6 = (HL), 7 = A
     std::uint8_t readR8(int index) const;
     void writeR8(int index, std::uint8_t value);
+
+    // 2-bit register pair index
+    // r16: 0 = BC, 1 = DE, 2 = HL, 3 = SP
+    // r16stk: 0 = BC, 1 = DE, 2 = HL, 3 = AF
+    std::uint16_t readR16(int index) const;
+    void writeR16(int index, std::uint16_t value);
+    std::uint16_t readR16Stk(int index) const;
+    void writeR16Stk(int index, std::uint16_t value);
+
+    void push16(std::uint16_t value);
+    std::uint16_t pop16();
 
     Mmu& mmu_;
     Registers regs_;
