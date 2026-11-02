@@ -12,7 +12,7 @@ using gb::Mmu;
 // Test fixture: every TEST_F gets a fresh Mmu and Cpu
 class CpuTest : public ::testing::Test {
 protected:
-    // Put programe at 0x0100 (post-boot PC) and reset CPU
+    // Put program at 0x0100 (post-boot PC) and reset CPU
     void load(std::initializer_list<std::uint8_t> program) {
         std::vector<std::uint8_t> rom(0x8000, 0x00);
         std::copy(program.begin(), program.end(), rom.begin() + 0x0100);
@@ -84,4 +84,72 @@ TEST_F(CpuTest, LdDoesNotChangeFlags) {
     cpu.regs().f = 0x00;  // clear all flags so any wrongly set flag shows up
     cpu.step();
     EXPECT_EQ(cpu.regs().f, 0x00);
+}
+
+TEST_F(CpuTest, LdBcImmediate16) {
+    load({0x01, 0x34, 0x12});  // LD BC, 0x1234 (little-endian immediate)
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().bc(), 0x1234);
+    EXPECT_EQ(cpu.regs().pc, 0x0103);
+}
+
+TEST_F(CpuTest, LdSpImmediate16) {
+    load({0x31, 0xFE, 0xCF});  // LD SP, 0xCFFE
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().sp, 0xCFFE);
+}
+
+TEST_F(CpuTest, LdSpFromHl) {
+    load({0xF9});  // LD SP, HL
+    cpu.regs().setHl(0xC100);
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().sp, 0xC100);
+}
+
+TEST_F(CpuTest, LdAbsoluteFromSp) {
+    load({0x08, 0x00, 0xC0});  // LD (0xC000), SP
+    cpu.regs().sp = 0xBEEF;
+    EXPECT_EQ(cpu.step(), 5);
+    EXPECT_EQ(mmu.read(0xC000), 0xEF);  // low byte first
+    EXPECT_EQ(mmu.read(0xC001), 0xBE);
+    EXPECT_EQ(cpu.regs().pc, 0x0103);
+}
+
+TEST_F(CpuTest, PushBcWritesHighThenLowBelowSp) {
+    load({0xC5});  // PUSH BC
+    cpu.regs().sp = 0xD000;
+    cpu.regs().setBc(0x1234);
+    EXPECT_EQ(cpu.step(), 4);
+    EXPECT_EQ(cpu.regs().sp, 0xCFFE);
+    EXPECT_EQ(mmu.read(0xCFFF), 0x12);  // high byte
+    EXPECT_EQ(mmu.read(0xCFFE), 0x34);  // low byte at new top of stack
+}
+
+TEST_F(CpuTest, PopDeReadsLittleEndian) {
+    load({0xD1});  // POP DE
+    cpu.regs().sp = 0xCFFE;
+    mmu.write(0xCFFE, 0x34);
+    mmu.write(0xCFFF, 0x12);
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().de(), 0x1234);
+    EXPECT_EQ(cpu.regs().sp, 0xD000);
+}
+
+TEST_F(CpuTest, PushThenPopRestoresValue) {
+    load({0xC5, 0xD1});  // PUSH BC; POP DE
+    cpu.regs().sp = 0xD000;
+    cpu.regs().setBc(0xABCD);
+    cpu.step();  // PUSH BC
+    cpu.step();  // POP DE
+    EXPECT_EQ(cpu.regs().de(), 0xABCD);
+    EXPECT_EQ(cpu.regs().sp, 0xD000);
+}
+
+TEST_F(CpuTest, PopAfClearsLowNibbleOfF) {
+    load({0xF1});  // POP AF
+    cpu.regs().sp = 0xCFFE;
+    mmu.write(0xCFFE, 0xFF);  // would-be F: low nibble must be dropped
+    mmu.write(0xCFFF, 0x12);  // A
+    cpu.step();
+    EXPECT_EQ(cpu.regs().af(), 0x12F0);
 }
