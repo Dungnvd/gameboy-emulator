@@ -153,3 +153,96 @@ TEST_F(CpuTest, PopAfClearsLowNibbleOfF) {
     cpu.step();
     EXPECT_EQ(cpu.regs().af(), 0x12F0);
 }
+
+TEST_F(CpuTest, LdAFromBcIndirect) {
+    load({0x0A});  // LD A, (BC)
+    cpu.regs().setBc(0xC123);
+    mmu.write(0xC123, 0x77);
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x77);
+}
+
+TEST_F(CpuTest, LdDeIndirectFromA) {
+    load({0x12});  // LD (DE), A
+    cpu.regs().setDe(0xC456);
+    cpu.regs().a = 0x88;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(mmu.read(0xC456), 0x88);
+}
+
+TEST_F(CpuTest, LdHlIncrementFromA) {
+    load({0x22});  // LD (HL+), A
+    cpu.regs().setHl(0xC000);
+    cpu.regs().a = 0x11;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(mmu.read(0xC000), 0x11);
+    EXPECT_EQ(cpu.regs().hl(), 0xC001);  // HL incremented after write
+}
+
+TEST_F(CpuTest, LdHlIncrementWrapsAround) {
+    load({0x22});  // LD (HL+), A
+    cpu.regs().setHl(0xFFFF);
+    cpu.regs().a = 0x01;
+    cpu.step();
+    EXPECT_EQ(mmu.read(0xFFFF), 0x01);   // 0xFFFF = Interrupt Enable register
+    EXPECT_EQ(cpu.regs().hl(), 0x0000);  // 16-bit wrap: 0xFFFF + 1 = 0x0000
+}
+
+TEST_F(CpuTest, LdAFromHlDecrement) {
+    load({0x3A});  // LD A, (HL-)
+    cpu.regs().setHl(0xC010);
+    mmu.write(0xC010, 0x22);
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x22);
+    EXPECT_EQ(cpu.regs().hl(), 0xC00F);  // HL decremented after read
+}
+
+TEST_F(CpuTest, LdAFromAbsolute) {
+    load({0xFA, 0x34, 0xC2});  // LD A, (0xC234)
+    mmu.write(0xC234, 0x5C);
+    EXPECT_EQ(cpu.step(), 4);
+    EXPECT_EQ(cpu.regs().a, 0x5C);
+    EXPECT_EQ(cpu.regs().pc, 0x103);
+}
+
+TEST_F(CpuTest, LdAbsoluteFromA) {
+    load({0xEA, 0x00, 0xD0});  // LD (0xD000), A
+    cpu.regs().a = 0x6D;
+    EXPECT_EQ(cpu.step(), 4);
+    EXPECT_EQ(mmu.read(0xD000), 0x6D);
+    EXPECT_EQ(cpu.regs().pc, 0x103);
+}
+
+TEST_F(CpuTest, LdhImmediateFromA) {
+    load({0xE0, 0x80});  // LDH (0x80), A -> writes at 0xFF00 + 0x80 = 0xFF80 (HRAM)
+    cpu.regs().a = 0x3E;
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(mmu.read(0xFF80), 0x3E);
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, LdhAFromImmediate) {
+    load({0xF0, 0x90});  // LDH A, (0x90) -> reads 0xFF00 + 0x90 = 0xFF90 (HRAM)
+    mmu.write(0xFF90, 0xC7);
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().a, 0xC7);
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, LdhCFromA) {
+    load({0xE2});  // LDH (C), A -> writes 0xFF00 + C
+    cpu.regs().c = 0xA0;
+    cpu.regs().a = 0x2B;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(mmu.read(0xFFA0), 0x2B);
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, LdhAFromC) {
+    load({0xF2});  // LDH A, (C) -> reads 0xFF00 + C
+    cpu.regs().c = 0x85;
+    mmu.write(0xFF85, 0x4F);
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x4F);
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}

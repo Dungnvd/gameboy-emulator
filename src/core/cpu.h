@@ -39,6 +39,10 @@ private:
     std::uint16_t readR16Stk(int index) const;
     void writeR16Stk(int index, std::uint16_t value);
 
+    // r16mem: 0 = BC, 1 = DE, 2 = HL+, 3 = HL-
+    // Returns address and applies HL increment/decrement
+    std::uint16_t addrR16Mem(int index);
+
     void push16(std::uint16_t value);
     std::uint16_t pop16();
 

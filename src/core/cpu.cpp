@@ -94,6 +94,74 @@ int Cpu::step() {
         return 3;
     }
 
+    if ((op & 0xCF) == 0x02) {
+        // LD (r16mem), A (00 rr0 010)
+        // 0xCF = 11 001 111 (mask)
+        // 0x02 = 00 000 010 (expected)
+        // 0x03 = 00 000 011 (keep 2 bits)
+        const int rr = (op >> 4) & 0x03;
+        mmu_.write(addrR16Mem(rr), regs_.a);
+        return 2;
+    }
+
+    if ((op & 0xCF) == 0x0A) {
+        // LD A, (r16mem) (00 rr1 010)
+        // 0xCF = 11 001 111 (mask)
+        // 0x0A = 00 001 010 (expected)
+        const int rr = (op >> 4) & 0x03;
+        regs_.a = mmu_.read(addrR16Mem(rr));
+        return 2;
+    }
+
+    if (op == 0xEA) {
+        // LD (nn), A
+        // 0xEA = 11 101 010
+        const std::uint16_t addr = fetch16();
+        mmu_.write(addr, regs_.a);
+        return 4;
+    }
+
+    if (op == 0xFA) {
+        // LD A, (nn)
+        // 0xFA = 11 111 010
+        const std::uint16_t addr = fetch16();
+        regs_.a = mmu_.read(addr);
+        return 4;
+    }
+
+    if (op == 0xE0) {
+        // LDH (n), A
+        // 0xE0 = 11 100 000
+        // H = High page (0xFF00-0xFFFF): I/O registers + HRAM
+        const std::uint16_t addr = static_cast<std::uint16_t>(0xFF00 + fetch8());
+        mmu_.write(addr, regs_.a);
+        return 3;
+    }
+
+    if (op == 0xF0) {
+        // LDH A, (n)
+        // 0xF0 = 11 110 000
+        const std::uint16_t addr = static_cast<std::uint16_t>(0xFF00 + fetch8());
+        regs_.a = mmu_.read(addr);
+        return 3;
+    }
+
+    if (op == 0xE2) {
+        // LDH (C), A
+        // 0xE2 = 11 100 010
+        const std::uint16_t addr = static_cast<std::uint16_t>(0xFF00 + regs_.c);
+        mmu_.write(addr, regs_.a);
+        return 2;
+    }
+
+    if (op == 0xF2) {
+        // LDH A, (C)
+        // 0xF2 = 11 110 010
+        const std::uint16_t addr = static_cast<std::uint16_t>(0xFF00 + regs_.c);
+        regs_.a = mmu_.read(addr);
+        return 2;
+    }
+
     throw std::runtime_error("Unimplemented opcode");
 }
 
@@ -231,6 +299,28 @@ void Cpu::writeR16Stk(int index, std::uint16_t value) {
             regs_.setAf(value);
             break;
     }
+}
+
+std::uint16_t Cpu::addrR16Mem(int index) {
+    // r16mem: 0 = BC, 1 = DE, 2 = HL+, 3 = HL-
+    switch (index) {
+        case 0:
+            return regs_.bc();
+        case 1:
+            return regs_.de();
+        case 2: {
+            const std::uint16_t addr = regs_.hl();
+            regs_.setHl(static_cast<std::uint16_t>(addr + 1));
+            return addr;
+        }
+        case 3: {
+            const std::uint16_t addr = regs_.hl();
+            regs_.setHl(static_cast<std::uint16_t>(addr - 1));
+            return addr;
+        }
+    }
+
+    return 0xFFFF;  // unreachable
 }
 
 void Cpu::push16(std::uint16_t value) {
