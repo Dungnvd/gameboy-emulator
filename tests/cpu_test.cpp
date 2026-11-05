@@ -246,3 +246,59 @@ TEST_F(CpuTest, LdhAFromC) {
     EXPECT_EQ(cpu.regs().a, 0x4F);
     EXPECT_EQ(cpu.regs().pc, 0x0101);
 }
+
+TEST_F(CpuTest, AddAFromB) {
+    load({0x80});         // ADD A, B
+    cpu.regs().f = 0xF0;  // all flags set
+    cpu.regs().a = 0x3C;
+    cpu.regs().b = 0x12;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x4E);
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0, N = 0, H = 0, C = 0 -> 0000 0000 = 0x00
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, AddSetsHalfCarry) {
+    load({0x80});  // ADD A, B
+    cpu.regs().a = 0x0F;
+    cpu.regs().b = 0x01;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x10);
+    EXPECT_EQ(cpu.regs().f,
+              0x20);  // Z = 0, N = 0, H = 1, C = 0 overflows bit 3 -> 0010 0000 = 0x20
+}
+
+TEST_F(CpuTest, AddSetsZeroHalfCarryAndCarry) {
+    load({0x80});         // ADD A, B
+    cpu.regs().f = 0x00;  // clear all flags because post-boot F is 0xB0
+    cpu.regs().a = 0x3A;
+    cpu.regs().b = 0xC6;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);  // 0x3A + 0xC6 = 0x100
+    EXPECT_EQ(cpu.regs().f, 0xB0);  // Z = 1, N = 0, H = 1, C = 1 -> 1011 0000 -> 0xB0
+}
+
+TEST_F(CpuTest, AddAToItselfSetsCarryWithoutHalfCarry) {
+    load({0x87});  // ADD A, A
+    cpu.regs().a = 0x80;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);
+    EXPECT_EQ(cpu.regs().f, 0x90);  // Z = 1, N = 0, H = 0, C = 1 -> 1001 0000 -> 0x90
+}
+
+TEST_F(CpuTest, AddAFromHlIndirect) {
+    load({0x86});  // ADD A, (HL)
+    cpu.regs().setHl(0xC000);
+    mmu.write(0xC000, 0x02);
+    cpu.regs().a = 0x01;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x03);
+}
+
+TEST_F(CpuTest, AddAImmediate) {
+    load({0xC6, 0x12});  // ADD A, 0x12
+    cpu.regs().a = 0x3C;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x4E);
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}

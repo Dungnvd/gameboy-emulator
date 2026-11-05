@@ -43,6 +43,15 @@ private:
     // Returns address and applies HL increment/decrement
     std::uint16_t addrR16Mem(int index);
 
+    // 8-bit ALU (Arithmetic Logic Unit) on A.
+    // pattern: 10 ooo rrr (r8) / 11 ooo 110 (n)
+    // operation - ooo: 0 = ADD, 1 = ADC, 2 = SUB, 3 = SBC, 4 = AND, 5 = XOR, 6 = OR, 7 = CP
+    void alu8(int operation, std::uint8_t value);
+    void add8(std::uint8_t value);
+
+    // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
+    void setFlags(bool z, bool n, bool h, bool c);
+
     void push16(std::uint16_t value);
     std::uint16_t pop16();
 

@@ -162,6 +162,28 @@ int Cpu::step() {
         return 2;
     }
 
+    if ((op & 0xC0) == 0x80) {
+        // ALU A, r8 (10 ooo rrr): ooo = operation
+        // ADD A, r8: Add value in r8 to A
+        // 0xC0 = 11 000 000 (mask)
+        // 0x80 = 10 000 000 (expected)
+        const int operation = (op >> 3) & 0x07;
+        const int src = op & 0x07;
+        alu8(operation, readR8(src));
+        return (src == 6) ? 2 : 1;
+    }
+
+    if((op & 0xC7) == 0xC6){
+        // ALU A, n (11 ooo 110): ooo = operation, n = immediate byte
+        // ADD A, n: Add value n to A
+        // 0xC7 = 11 000 111 (mask)
+        // 0xC6 = 11 000 110 (expected)
+        const int operation = (op >> 3) & 0x07;
+        alu8(operation, fetch8());
+        return 2;
+
+    }
+
     throw std::runtime_error("Unimplemented opcode");
 }
 
@@ -321,6 +343,44 @@ std::uint16_t Cpu::addrR16Mem(int index) {
     }
 
     return 0xFFFF;  // unreachable
+}
+
+void Cpu::alu8(int operation, std::uint8_t value) {
+    // operation - ooo: 0 = ADD, 1 = ADC, 2 = SUB, 3 = SBC, 4 = AND, 5 = XOR, 6 = OR, 7 = CP
+    switch (operation) {
+        case 0:
+            add8(value);
+            break;
+        default:
+            throw std::runtime_error("ALU operation not implemented yet");
+    }
+}
+
+void Cpu::add8(std::uint8_t value) {
+    // Destination is always A (no 8-bit ADD into other registers)
+    // Flags: Z 0 H C
+    const std::uint8_t a = regs_.a;
+    const int sum = a + value;
+    const std::uint8_t result = static_cast<std::uint8_t>(sum);
+
+    const bool z = (result == 0);
+    const bool h =
+        ((a & 0x0F) + (value & 0x0F)) >
+        0x0F;  // 0x0F = 0000 1111 -> keeps only low nibbles -> sum > 0x0F means carry from bit 3
+    const bool c = sum > 0xFF;  // means carry from bit 7
+
+    regs_.a = result;
+    setFlags(z, false, h, c);
+}
+
+void Cpu::setFlags(bool z, bool n, bool h, bool c) {
+    // f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
+    // Z (0x80): set if result is 0
+    // N (0x40): set if operation was a subtraction
+    // H (0x20): set if carry from bit 3 to bit 4
+    // C (0x10): set if carry from bit 7
+    regs_.f = static_cast<std::uint8_t>((z ? 0x80 : 0) | (n ? 0x40 : 0) | (h ? 0x20 : 0) |
+                                        (c ? 0x10 : 0));
 }
 
 void Cpu::push16(std::uint16_t value) {
