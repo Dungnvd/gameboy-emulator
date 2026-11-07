@@ -48,6 +48,8 @@ private:
     // operation - ooo: 0 = ADD, 1 = ADC, 2 = SUB, 3 = SBC, 4 = AND, 5 = XOR, 6 = OR, 7 = CP
     void alu8(int operation, std::uint8_t value);
     void add8(std::uint8_t value);
+    void sub8(std::uint8_t value);
+    void cp8(std::uint8_t value);
 
     // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     void setFlags(bool z, bool n, bool h, bool c);
