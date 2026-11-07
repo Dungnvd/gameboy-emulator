@@ -173,7 +173,7 @@ int Cpu::step() {
         return (src == 6) ? 2 : 1;
     }
 
-    if((op & 0xC7) == 0xC6){
+    if ((op & 0xC7) == 0xC6) {
         // ALU A, n (11 ooo 110): ooo = operation, n = immediate byte
         // ADD A, n: Add value n to A
         // 0xC7 = 11 000 111 (mask)
@@ -181,7 +181,6 @@ int Cpu::step() {
         const int operation = (op >> 3) & 0x07;
         alu8(operation, fetch8());
         return 2;
-
     }
 
     throw std::runtime_error("Unimplemented opcode");
@@ -351,6 +350,12 @@ void Cpu::alu8(int operation, std::uint8_t value) {
         case 0:
             add8(value);
             break;
+        case 2:
+            sub8(value);
+            break;
+        case 7:
+            cp8(value);
+            break;
         default:
             throw std::runtime_error("ALU operation not implemented yet");
     }
@@ -373,12 +378,34 @@ void Cpu::add8(std::uint8_t value) {
     setFlags(z, false, h, c);
 }
 
+void Cpu::sub8(std::uint8_t value) {
+    // SUB A, value: A = A - value. Destination is always A
+    // Flags: Z 1 H C
+    const std::uint8_t a = regs_.a;
+    const std::uint8_t result = static_cast<std::uint8_t>(a - value);  // wraps: 0x10 - 0x20 = 0xF0
+
+    const bool z = (result == 0);
+    const bool h = (a & 0x0F) < (value & 0x0F);
+    const bool c = a < value;  // C: A < value means borrow
+
+    regs_.a = result;
+    setFlags(z, true, h, c);
+}
+
+void Cpu::cp8(std::uint8_t value) {
+    // CP A, value: SUB that discards result (A unchanged)
+    // Flags: Z 1 H C
+    const std::uint8_t a = regs_.a;
+    sub8(value);
+    regs_.a = a;
+}
+
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {
     // f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     // Z (0x80): set if result is 0
     // N (0x40): set if operation was a subtraction
-    // H (0x20): set if carry from bit 3 to bit 4
-    // C (0x10): set if carry from bit 7
+    // H (0x20): set if carry from bit 3 / borrow from bit 4
+    // C (0x10): set if carry from bit 7 / borrow (A < value)
     regs_.f = static_cast<std::uint8_t>((z ? 0x80 : 0) | (n ? 0x40 : 0) | (h ? 0x20 : 0) |
                                         (c ? 0x10 : 0));
 }

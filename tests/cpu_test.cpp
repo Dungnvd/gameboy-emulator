@@ -302,3 +302,66 @@ TEST_F(CpuTest, AddAImmediate) {
     EXPECT_EQ(cpu.regs().a, 0x4E);
     EXPECT_EQ(cpu.regs().pc, 0x0102);
 }
+
+TEST_F(CpuTest, SubAFromB) {
+    load({0x90});  // SUB A, B
+    cpu.regs().a = 0x3E;
+    cpu.regs().b = 0x12;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x2C);
+    EXPECT_EQ(cpu.regs().f, 0x40);  // Z = 0, N = 1, H = 0, C = 0 -> 0100 0000 = 0x40
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, SubSetsHalfCarry) {
+    load({0x90});  // SUB A, B
+    cpu.regs().a = 0x10;
+    cpu.regs().b = 0x01;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x0F);
+    EXPECT_EQ(cpu.regs().f, 0x60);  // Z = 0, N = 1, H = 1, C = 0 -> 0110 0000 = 0x60
+}
+
+TEST_F(CpuTest, SubSetsCarryAndWraps) {
+    load({0x90});  // SUB A, B
+    cpu.regs().a = 0x10;
+    cpu.regs().b = 0x20;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0xF0);
+    EXPECT_EQ(cpu.regs().f, 0x50);  // Z = 0, N = 1, H = 0, C = 1 -> 0101 0000 = 0x50
+}
+
+TEST_F(CpuTest, SubAFromItselfSetsZero) {
+    load({0x97});  // SUB A, A
+    cpu.regs().a = 0x3E;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);
+    EXPECT_EQ(cpu.regs().f,
+              0xC0);  // Z = 1, N = 1, H = 0, C = 0 (equal: no borrow) -> 1100 0000 = 0xC0
+}
+
+TEST_F(CpuTest, SubAImmediate) {
+    load({0xD6, 0x01});  // SUB A, 0x01
+    cpu.regs().a = 0x05;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x04);
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, CpEqualSetsZeroAndKeepsA) {
+    load({0xB8});  // CP A, B
+    cpu.regs().a = 0x42;
+    cpu.regs().b = 0x42;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x42);  // A unchanged: CP discards result
+    EXPECT_EQ(cpu.regs().f, 0xC0);  // Z = 1, N = 1, H = 0, C = 0 -> 1100 0000 = 0xC0
+}
+
+TEST_F(CpuTest, CpImmediateLessSetsCarry) {
+    load({0xFE, 0x20});  // CP A, 0x20
+    cpu.regs().a = 0x10;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x10);  // A unchanged
+    EXPECT_EQ(cpu.regs().f, 0x50);  // Z = 0, N = 1, H = 0, C = 1 -> 0101 0000 = 0x50
+    EXPECT_EQ(cpu.regs().pc, 0x102);
+}
