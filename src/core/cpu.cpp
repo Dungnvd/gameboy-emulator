@@ -164,7 +164,6 @@ int Cpu::step() {
 
     if ((op & 0xC0) == 0x80) {
         // ALU A, r8 (10 ooo rrr): ooo = operation
-        // ADD A, r8: Add value in r8 to A
         // 0xC0 = 11 000 000 (mask)
         // 0x80 = 10 000 000 (expected)
         const int operation = (op >> 3) & 0x07;
@@ -175,7 +174,6 @@ int Cpu::step() {
 
     if ((op & 0xC7) == 0xC6) {
         // ALU A, n (11 ooo 110): ooo = operation, n = immediate byte
-        // ADD A, n: Add value n to A
         // 0xC7 = 11 000 111 (mask)
         // 0xC6 = 11 000 110 (expected)
         const int operation = (op >> 3) & 0x07;
@@ -353,9 +351,19 @@ void Cpu::alu8(int operation, std::uint8_t value) {
         case 2:
             sub8(value);
             break;
+        case 4:
+            and8(value);
+            break;
+        case 5:
+            xor8(value);
+            break;
+        case 6:
+            or8(value);
+            break;
         case 7:
             cp8(value);
             break;
+
         default:
             throw std::runtime_error("ALU operation not implemented yet");
     }
@@ -398,6 +406,28 @@ void Cpu::cp8(std::uint8_t value) {
     const std::uint8_t a = regs_.a;
     sub8(value);
     regs_.a = a;
+}
+
+void Cpu::and8(std::uint8_t value) {
+    // AND A, value: A = A & value
+    // Flags: Z 0 1 0
+    // H is always 1 for AND: defined by hardware
+    regs_.a = static_cast<std::uint8_t>(regs_.a & value);
+    setFlags(regs_.a == 0, false, true, false);
+}
+
+void Cpu::xor8(std::uint8_t value) {
+    // XOR A, value: A = A ^ value (bitwise)
+    // Flags: Z 0 0 0
+    regs_.a = static_cast<std::uint8_t>(regs_.a ^ value);
+    setFlags(regs_.a == 0, false, false, false);
+}
+
+void Cpu::or8(std::uint8_t value) {
+    // OR A, value: A = A | value (bitwise)
+    // Flags: Z 0 0 0
+    regs_.a = static_cast<std::uint8_t>(regs_.a | value);
+    setFlags(regs_.a == 0, false, false, false);
 }
 
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {

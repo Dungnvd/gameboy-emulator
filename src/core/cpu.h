@@ -50,6 +50,9 @@ private:
     void add8(std::uint8_t value);
     void sub8(std::uint8_t value);
     void cp8(std::uint8_t value);
+    void and8(std::uint8_t value);
+    void xor8(std::uint8_t value);
+    void or8(std::uint8_t value);
 
     // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     void setFlags(bool z, bool n, bool h, bool c);
