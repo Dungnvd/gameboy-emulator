@@ -365,3 +365,62 @@ TEST_F(CpuTest, CpImmediateLessSetsCarry) {
     EXPECT_EQ(cpu.regs().f, 0x50);  // Z = 0, N = 1, H = 0, C = 1 -> 0101 0000 = 0x50
     EXPECT_EQ(cpu.regs().pc, 0x102);
 }
+
+TEST_F(CpuTest, AndAFromB) {
+    load({0xA0});         // AND A, B
+    cpu.regs().f = 0xD0;  // 1101 0000 : Z N C set, H clear, AND must clear Z N C and set H
+    cpu.regs().a = 0x3C;
+    cpu.regs().b = 0x0F;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x0C);
+    EXPECT_EQ(cpu.regs().f,
+              0x20);  // Z = 0, N = 0, H = 1, C = 0 -> 0010 0000 = 0x20, AND always sets H = 1
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, AndImmediateSetsZero) {
+    load({0xE6, 0x0F});  // AND A, 0x0F
+    cpu.regs().a = 0xF0;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x00);
+    EXPECT_EQ(cpu.regs().f, 0xA0);  // Z = 1, N = 0, H = 1, C = 0 -> 1010 0000 = 0xA0
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, XorAWithItselfClearsA) {
+    load({0xAF});         // XOR A, A
+    cpu.regs().f = 0x70;  // 0111 0000: N H C set, XOR must clear them
+    cpu.regs().a = 0x5A;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x00);  // x ^ x = 0
+    EXPECT_EQ(cpu.regs().f, 0x80);  // Z = 1, N = 0, H = 0, C = 0 -> 1000 0000 = 0x80
+}
+
+TEST_F(CpuTest, XorImmediateFlipsBits) {
+    load({0xEE, 0xFF});   // XOR A, 0xFF
+    cpu.regs().f = 0xF0;  // 1111 0000
+    cpu.regs().a = 0x0F;  // 0000 1111
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0xF0);  // 1111 0000, XOR with 1s flips every bit
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0, N = 0, H = 0, C = 0
+}
+
+TEST_F(CpuTest, OrAFromB) {
+    load({0xB0});         // OR A, B
+    cpu.regs().f = 0xF0;  // all flags set
+    cpu.regs().a = 0x5A;
+    cpu.regs().b = 0x0F;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x5F);  // 0101 1010 | 0000 1111 = 0101 1111
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0, N = 0, H = 0, C = 0
+}
+
+TEST_F(CpuTest, OrImmediateSetsZeroOnlyIfBothZero) {
+    load({0xF6, 0x00});   // OR A, 0x00
+    cpu.regs().f = 0x70;  // 0111 0000: N H C set
+    cpu.regs().a = 0x00;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x00);
+    EXPECT_EQ(cpu.regs().f, 0x80);  // Z = 1, N = 0, H = 0, C = 0 -> 1000 0000 = 0x80
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
