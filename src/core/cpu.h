@@ -57,6 +57,10 @@ private:
     void xor8(std::uint8_t value);
     void or8(std::uint8_t value);
 
+    // INC / DEC r8: return value +/- 1 and set Z N H. C is left unchanged
+    std::uint8_t inc8(std::uint8_t value);
+    std::uint8_t dec8(std::uint8_t value);
+
     // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     void setFlags(bool z, bool n, bool h, bool c);
 
