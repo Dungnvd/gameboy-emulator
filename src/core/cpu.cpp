@@ -181,6 +181,24 @@ int Cpu::step() {
         return 2;
     }
 
+    if((op & 0xC7) == 0x04){
+        // INC r8 (00 rrr 100): Increment value in register r8 by 1
+        // 0xC7 = 11 000 111 (mask)
+        // 0x04 = 00 000 100 (expected)
+        const int reg = (op >> 3) & 0x07;
+        writeR8(reg, inc8(readR8(reg)));
+        return (reg == 6) ? 3 : 1; // (HL): read + write memory
+    }
+
+    if((op & 0xC7) == 0x05){
+        // DEC r8 ( 00 rrr 101): Decrement value in register r8 by 1
+        // 0xC7 = 11 000 111 (mask)
+        // 0x04 = 00 000 101 (expected)
+        const int reg = (op >> 3) & 0x07;
+        writeR8(reg, dec8(readR8(reg)));
+        return (reg == 6) ? 3 : 1;
+    }
+
     throw std::runtime_error("Unimplemented opcode");
 }
 
@@ -355,8 +373,8 @@ void Cpu::alu8(int operation, std::uint8_t value) {
             sub8(value, false);
             break;
         case 3:
-             sub8(value, regs_.getFlag(Flag::C));
-             break;
+            sub8(value, regs_.getFlag(Flag::C));
+            break;
         case 4:
             and8(value);
             break;
@@ -382,7 +400,7 @@ void Cpu::add8(std::uint8_t value, bool carry) {
     // Flags: Z 0 H C
     const std::uint8_t a = regs_.a;
     const int carryIn = carry ? 1 : 0;
-    const int sum = a + value + carryIn; // int keeps bit 8, needed for carry check
+    const int sum = a + value + carryIn;  // int keeps bit 8, needed for carry check
     const std::uint8_t result = static_cast<std::uint8_t>(sum);
 
     const bool z = (result == 0);
@@ -402,7 +420,7 @@ void Cpu::sub8(std::uint8_t value, bool carry) {
     // Flags: Z 1 H C
     const std::uint8_t a = regs_.a;
     const int carryIn = carry ? 1 : 0;
-    const int diff = a - value - carryIn; // int can go negative
+    const int diff = a - value - carryIn;                         // int can go negative
     const std::uint8_t result = static_cast<std::uint8_t>(diff);  // wraps: 0x10 - 0x20 = 0xF0
 
     const bool z = (result == 0);
@@ -442,6 +460,24 @@ void Cpu::or8(std::uint8_t value) {
     // Flags: Z 0 0 0
     regs_.a = static_cast<std::uint8_t>(regs_.a | value);
     setFlags(regs_.a == 0, false, false, false);
+}
+
+std::uint8_t Cpu::inc8(std::uint8_t value) {
+    // INC: value + 1
+    // Flags: Z 0 H. C unchanged
+    const std::uint8_t result = static_cast<std::uint8_t>(value + 1);  // wraps: 0xFF + 1 = 0x00
+    const bool h = (value & 0x0F) == 0x0F;  // H: low nibble F + 1 carries from bit 3
+    setFlags(result == 0, false, h, regs_.getFlag(Flag::C));
+    return result;
+}
+
+std::uint8_t Cpu::dec8(std::uint8_t value) {
+    // DEC: value - 1
+    // Flags: Z 1 H. C unchanged
+    const std::uint8_t result = static_cast<std::uint8_t>(value - 1);  // wraps: 0x00 - 1 = 0xFF
+    const bool h = (value & 0x0F) == 0x00;  // H: low nibble 0 - 1 borrows from bit 4
+    setFlags(result == 0, true, h, regs_.getFlag(Flag::C));
+    return result;
 }
 
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {

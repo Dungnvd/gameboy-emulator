@@ -484,3 +484,77 @@ TEST_F(CpuTest, SbcCarryInBorrowsFromZero) {
     EXPECT_EQ(cpu.regs().f, 0xF0);  // Z = 1, N = 1, H =1 (0 < F + 1), C = 1 -> 1111 0000 = 0xF0
     EXPECT_EQ(cpu.regs().pc, 0x0102);
 }
+
+TEST_F(CpuTest, IncBClearsZnhAndKeepsCarry) {
+    load({0x04});         // INC B
+    cpu.regs().f = 0xF0;  // 1111 0000: all flags set
+    cpu.regs().b = 0x41;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().b, 0x42);
+    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0, N = 0, H = 0, C = 1 (unchanged) -> 0001 0000 = 0x01
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, IncCSetsHalfCarry) {
+    load({0x0C});  // INC C
+    cpu.regs().f = 0x00;
+    cpu.regs().c = 0x0F;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().c, 0x10);
+    EXPECT_EQ(cpu.regs().f, 0x20);  // Z = 0, N = 0, H = 1, C = 0 -> 0010 0000 = 0x20;
+}
+
+TEST_F(CpuTest, IncAWrapsToZeroWithoutCarry) {
+    load({0x3C});         // INC A
+    cpu.regs().f = 0x00;  // C = 0 must stay 0 even through 0xFF + 1 overflows
+    cpu.regs().a = 0xFF;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);
+    EXPECT_EQ(cpu.regs().f,
+              0xA0);  // Z = 1, N = 0, H = 1, C = 0 (INC never sets C) -> 1010 0000 = 0xA0;
+}
+
+TEST_F(CpuTest, IncHlIndirect) {
+    load({0x34});  // INC (HL)
+    cpu.regs().setHl(0xC000);
+    mmu.write(0xC000, 0x7F);
+    EXPECT_EQ(cpu.step(), 3);  // fetch opcode + read (HL) + write (HL)
+    EXPECT_EQ(mmu.read(0xC000), 0x80);
+}
+
+TEST_F(CpuTest, DecSetsSubtractAndKeepsCarry) {
+    load({0x05});         // DEC B
+    cpu.regs().f = 0xB0;  // 1011 0000: Z H C set, N clear
+    cpu.regs().b = 0x42;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().b, 0x41);
+    EXPECT_EQ(cpu.regs().f, 0x50);  // Z = 0, N = 1, H = 0, C = 1 (unchanged) -> 0101 0000 = 0x50
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, DecEToZeroSetsZero) {
+    load({0x1D});  // DEC E
+    cpu.regs().f = 0x00;
+    cpu.regs().e = 0x01;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().e, 0x00);
+    EXPECT_EQ(cpu.regs().f, 0xC0);  // Z = 1, N = 1, H = 0. C = 0 -> 1100 0000 = 0x50
+}
+
+TEST_F(CpuTest, DecAWrapsSetsHalfCarryWithoutCarry) {
+    load({0x3D});  // DEC A
+    cpu.regs().f = 0x00;
+    cpu.regs().a = 0x00;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0xFF);  // 0x00 - 1 wraps to 0xFF
+    EXPECT_EQ(cpu.regs().f,
+              0x60);  // Z = 0, N = 1, H = 1, C = 0 (DEC never sets C) -> 0110 0000 = 0x60
+}
+
+TEST_F(CpuTest, DecHlIndirect) {
+    load({0x35});  // DEC (HL)
+    cpu.regs().setHl(0xC000);
+    mmu.write(0xC000, 0x10);
+    EXPECT_EQ(cpu.step(), 3);  // fetch opcode + read (HL) + write (HL)
+    EXPECT_EQ(mmu.read(0xC000), 0x0F);
+}
