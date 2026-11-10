@@ -181,22 +181,51 @@ int Cpu::step() {
         return 2;
     }
 
-    if((op & 0xC7) == 0x04){
+    if ((op & 0xC7) == 0x04) {
         // INC r8 (00 rrr 100): Increment value in register r8 by 1
         // 0xC7 = 11 000 111 (mask)
         // 0x04 = 00 000 100 (expected)
         const int reg = (op >> 3) & 0x07;
         writeR8(reg, inc8(readR8(reg)));
-        return (reg == 6) ? 3 : 1; // (HL): read + write memory
+        return (reg == 6) ? 3 : 1;  // (HL): read + write memory
     }
 
-    if((op & 0xC7) == 0x05){
+    if ((op & 0xC7) == 0x05) {
         // DEC r8 ( 00 rrr 101): Decrement value in register r8 by 1
         // 0xC7 = 11 000 111 (mask)
         // 0x04 = 00 000 101 (expected)
         const int reg = (op >> 3) & 0x07;
         writeR8(reg, dec8(readR8(reg)));
         return (reg == 6) ? 3 : 1;
+    }
+
+    if ((op & 0xCF) == 0x03) {
+        // INC rr (00 rr0 011): Increment value in register r16 by 1
+        // Flags: None
+        // Done by IDU (16-bit incrementer), not ALU -> no flags change
+        // 0xCF = 11 001 111 (mask)
+        // 0x03 = 00 000 011 (expected)
+        const int rr = (op >> 4) & 0x03;
+        writeR16(rr, static_cast<std::uint16_t>(readR16(rr) + 1));
+        return 2;
+    }
+
+    if ((op & 0xCF) == 0x0B) {
+        // DEC rr (00 rr1 011)
+        // Flags: None
+        // 0xCF = 11 001 111 (mask)
+        // 0x0B = 00 001 011 (expected)
+        const int rr = (op >> 4) & 0x03;
+        writeR16(rr, static_cast<std::uint16_t>(readR16(rr) - 1));
+        return 2;
+    }
+
+    if ((op & 0xCF) == 0x09) {
+        // ADD HL, rr (00 rr1 001): Add value in r16 to HL
+        // 0x09 = 00 001 001 (expected)
+        const int rr = (op >> 4) & 0x03;
+        addHl(readR16(rr));
+        return 2;
     }
 
     throw std::runtime_error("Unimplemented opcode");
@@ -478,6 +507,20 @@ std::uint8_t Cpu::dec8(std::uint8_t value) {
     const bool h = (value & 0x0F) == 0x00;  // H: low nibble 0 - 1 borrows from bit 4
     setFlags(result == 0, true, h, regs_.getFlag(Flag::C));
     return result;
+}
+
+void Cpu::addHl(std::uint16_t value) {
+    // ADD HL, value: HL = HL + value
+    // Flags: - 0 H C (Z unchanged)
+    const std::uint16_t hl = regs_.hl();
+    const int sum = hl + value;  // int keeps bit 16, needed for carry check
+
+    // H: & 0x0FFF keeps low 12 bits. Sum > 0x0FFF means carry from bit 11
+    const bool h = ((hl & 0x0FFF) + (value & 0x0FFF)) > 0x0FFF;
+    const bool c = sum > 0xFFFF;  // C: sum > 0xFFFF means carry from bit 15
+
+    regs_.setHl(static_cast<std::uint16_t>(sum));
+    setFlags(regs_.getFlag(Flag::Z), false, h, c);  // old Z
 }
 
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {

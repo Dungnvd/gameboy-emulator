@@ -462,10 +462,10 @@ TEST_F(CpuTest, SbcSubtractsCarryIn) {
     cpu.regs().b = 0x12;
     EXPECT_EQ(cpu.step(), 1);
     EXPECT_EQ(cpu.regs().a, 0x2B);  // 0x3E - 0x12 - 1 (SUB would give 0x2C)
-    EXPECT_EQ(cpu.regs().f, 0x40);  // Z = 0, N = 1, H = 0 ( E > 2 + 1), C = 0 -> 0100 000 = 0x40
+    EXPECT_EQ(cpu.regs().f, 0x40);  // Z = 0, N = 1, H = 0 ( E > 2 + 1), C = 0 -> 0100 0000 = 0x40
 }
 
-TEST_F(CpuTest, SubWithoutCarryInActsLikeSub) {
+TEST_F(CpuTest, SbcWithoutCarryInActsLikeSub) {
     load({0x98});         // SBC A, B
     cpu.regs().f = 0x00;  // C = 0: nothing extra to subtract
     cpu.regs().a = 0x3E;
@@ -557,4 +557,78 @@ TEST_F(CpuTest, DecHlIndirect) {
     mmu.write(0xC000, 0x10);
     EXPECT_EQ(cpu.step(), 3);  // fetch opcode + read (HL) + write (HL)
     EXPECT_EQ(mmu.read(0xC000), 0x0F);
+}
+
+TEST_F(CpuTest, IncBcCarriesIntoHighByteWithoutFlags) {
+    load({0x03});         // INC BC
+    cpu.regs().f = 0xF0;  // INC rr must not touch any flag
+    cpu.regs().setBc(0x12FF);
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().bc(), 0x1300);  // low byte FF + 1 carries into B
+    EXPECT_EQ(cpu.regs().f, 0xF0);       // unchanged
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, IncSpWrapsAround) {
+    load({0x33});  // INC SP
+    cpu.regs().sp = 0xFFFF;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().sp, 0x0000);  // 16-bit wrap: 0xFFFF + 1 = 0x0000
+}
+
+TEST_F(CpuTest, DecDeBorrowsFromHighByteWithoutFlags) {
+    load({0x1B});         // DEC DE
+    cpu.regs().f = 0x00;  // DEC rr must not set any flags
+    cpu.regs().setDe(0x1300);
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().de(), 0x12FF);  // low byte 00 - 1 borrows from D
+    EXPECT_EQ(cpu.regs().f, 0x00);       // unchanged
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, DecHlWrapsAround) {
+    load({0x2B});  // DEC HL
+    cpu.regs().setHl(0x0000);
+    cpu.step();
+    EXPECT_EQ(cpu.regs().hl(), 0xFFFF);  // 16-bit wrap
+}
+
+TEST_F(CpuTest, AddHlBcKeepsZeroClearsNhc) {
+    load({0x09});         // ADD HL, BC
+    cpu.regs().f = 0xF0;  // 1111 0000 -> Z must stay 1 (defined by hardware). N H C must be cleared
+    cpu.regs().setHl(0x1000);
+    cpu.regs().setBc(0x0234);
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().hl(), 0x1234);
+    EXPECT_EQ(cpu.regs().f, 0x80);  // Z = 1 (unchanged), N = 0, H = 0, C = 0 -> 1000 0000 = 0x80
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, AddHlSetsHalfCarryFromBit11) {
+    load({0x19});  // ADD HL, DE
+    cpu.regs().f = 0x00;
+    cpu.regs().setHl(0x0F00);
+    cpu.regs().setDe(0x0100);
+    cpu.step();
+    EXPECT_EQ(cpu.regs().hl(), 0x1000);
+    EXPECT_EQ(cpu.regs().f, 0x20);  // Z = 0, N = 0, H = 1, N = 0 -> 0010 0000 = 0x20
+}
+
+TEST_F(CpuTest, AddHlToItselfSetsCarryButNotZero) {
+    load({0x29});         // ADD HL, HL
+    cpu.regs().f = 0x00;  // Z = 0, must stay 0 even though result = 0
+    cpu.regs().setHl(0x8000);
+    cpu.step();
+    EXPECT_EQ(cpu.regs().hl(), 0x0000);  // 0x8000 + 0x8000 = 0x10000
+    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0 (unchanged), N = 0, H = 0, C = 1 -> 0001 0000 = 0x10
+}
+
+TEST_F(CpuTest, AddHlSpSetsHalfCarryAndCarry) {
+    load({0x39});  // ADD HL, SP
+    cpu.regs().f = 0x00;
+    cpu.regs().setHl(0x0001);
+    cpu.regs().sp = 0xFFFF;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().hl(), 0x0000);  // 0x0001 + 0xFFFF = 0x10000
+    EXPECT_EQ(cpu.regs().f, 0x30);  // Z = 0 (unchanged), N = 0, H = 1, C = 1 -> 0011 0000 = 0x30
 }
