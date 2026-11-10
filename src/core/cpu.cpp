@@ -346,11 +346,17 @@ void Cpu::alu8(int operation, std::uint8_t value) {
     // operation - ooo: 0 = ADD, 1 = ADC, 2 = SUB, 3 = SBC, 4 = AND, 5 = XOR, 6 = OR, 7 = CP
     switch (operation) {
         case 0:
-            add8(value);
+            add8(value, false);
+            break;
+        case 1:
+            add8(value, regs_.getFlag(Flag::C));
             break;
         case 2:
-            sub8(value);
+            sub8(value, false);
             break;
+        case 3:
+             sub8(value, regs_.getFlag(Flag::C));
+             break;
         case 4:
             and8(value);
             break;
@@ -369,16 +375,19 @@ void Cpu::alu8(int operation, std::uint8_t value) {
     }
 }
 
-void Cpu::add8(std::uint8_t value) {
+void Cpu::add8(std::uint8_t value, bool carry) {
+    // carry = false: ADD A, value, A = A + value
+    // carry = old C: ADC A, value, A = A + value + carry
     // Destination is always A (no 8-bit ADD into other registers)
     // Flags: Z 0 H C
     const std::uint8_t a = regs_.a;
-    const int sum = a + value;
+    const int carryIn = carry ? 1 : 0;
+    const int sum = a + value + carryIn; // int keeps bit 8, needed for carry check
     const std::uint8_t result = static_cast<std::uint8_t>(sum);
 
     const bool z = (result == 0);
     const bool h =
-        ((a & 0x0F) + (value & 0x0F)) >
+        ((a & 0x0F) + (value & 0x0F) + carryIn) >
         0x0F;  // 0x0F = 0000 1111 -> keeps only low nibbles -> sum > 0x0F means carry from bit 3
     const bool c = sum > 0xFF;  // means carry from bit 7
 
@@ -386,15 +395,20 @@ void Cpu::add8(std::uint8_t value) {
     setFlags(z, false, h, c);
 }
 
-void Cpu::sub8(std::uint8_t value) {
+void Cpu::sub8(std::uint8_t value, bool carry) {
+    // carry = false: SUB A, value, A = A - value
+    // carry = old C: SUB A, value, A = A - value - carry
     // SUB A, value: A = A - value. Destination is always A
     // Flags: Z 1 H C
     const std::uint8_t a = regs_.a;
-    const std::uint8_t result = static_cast<std::uint8_t>(a - value);  // wraps: 0x10 - 0x20 = 0xF0
+    const int carryIn = carry ? 1 : 0;
+    const int diff = a - value - carryIn; // int can go negative
+    const std::uint8_t result = static_cast<std::uint8_t>(diff);  // wraps: 0x10 - 0x20 = 0xF0
 
     const bool z = (result == 0);
-    const bool h = (a & 0x0F) < (value & 0x0F);
-    const bool c = a < value;  // C: A < value means borrow
+    // H: & 0x0F keeps only low nibbles: A's low nibble < (value + carry) means borrow from bit 4
+    const bool h = (a & 0x0F) < (value & 0x0F) + carryIn;
+    const bool c = diff < 0;  // C: negative difference means borrow
 
     regs_.a = result;
     setFlags(z, true, h, c);
@@ -404,7 +418,7 @@ void Cpu::cp8(std::uint8_t value) {
     // CP A, value: SUB that discards result (A unchanged)
     // Flags: Z 1 H C
     const std::uint8_t a = regs_.a;
-    sub8(value);
+    sub8(value, false);
     regs_.a = a;
 }
 
