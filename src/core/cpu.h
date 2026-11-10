@@ -47,8 +47,11 @@ private:
     // pattern: 10 ooo rrr (r8) / 11 ooo 110 (n)
     // operation - ooo: 0 = ADD, 1 = ADC, 2 = SUB, 3 = SBC, 4 = AND, 5 = XOR, 6 = OR, 7 = CP
     void alu8(int operation, std::uint8_t value);
-    void add8(std::uint8_t value);
-    void sub8(std::uint8_t value);
+
+    // carry = false for ADD / SUB, old C flag for ADC / SBC
+    void add8(std::uint8_t value, bool carry);
+    void sub8(std::uint8_t value, bool carry);
+
     void cp8(std::uint8_t value);
     void and8(std::uint8_t value);
     void xor8(std::uint8_t value);

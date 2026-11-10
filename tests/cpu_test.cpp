@@ -424,3 +424,63 @@ TEST_F(CpuTest, OrImmediateSetsZeroOnlyIfBothZero) {
     EXPECT_EQ(cpu.regs().f, 0x80);  // Z = 1, N = 0, H = 0, C = 0 -> 1000 0000 = 0x80
     EXPECT_EQ(cpu.regs().pc, 0x0102);
 }
+
+TEST_F(CpuTest, AdcAddsCarryIn) {
+    load({0x88});         // ADC A, B
+    cpu.regs().f = 0x10;  // 0001 0000, C = 1: carry in
+    cpu.regs().a = 0x3C;
+    cpu.regs().b = 0x12;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x4F);  // 0x3C + 0x12 + 1 (ADD would give 0x4E)
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0, N = 0, H = 0, C = 0 (0x4F < 0xFF)
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, AdcWithoutCarryInActsLikeAdd) {
+    load({0x88});         // ADC A, B
+    cpu.regs().f = 0x00;  // C = 0: nothing extra to add
+    cpu.regs().a = 0x3C;
+    cpu.regs().b = 0x12;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x4E);  // same as ADD
+}
+
+TEST_F(CpuTest, AdcCarryInOverflowsFromFF) {
+    load({0xCE, 0xFF});   // ADC A, 0xFF
+    cpu.regs().f = 0x10;  // 0001 0000, C = 1
+    cpu.regs().a = 0x00;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a, 0x00);  // 0x00 + 0xFF + 1 = 0x100
+    EXPECT_EQ(cpu.regs().f, 0xB0);  // Z = 1, N = 0, H = 1, C = 1 -> 1011 0000 = 0xB0
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, SbcSubtractsCarryIn) {
+    load({0x98});         // SBC A, B
+    cpu.regs().f = 0x10;  // 0001 0000, C = 1 : borrow in
+    cpu.regs().a = 0x3E;
+    cpu.regs().b = 0x12;
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x2B);  // 0x3E - 0x12 - 1 (SUB would give 0x2C)
+    EXPECT_EQ(cpu.regs().f, 0x40);  // Z = 0, N = 1, H = 0 ( E > 2 + 1), C = 0 -> 0100 000 = 0x40
+}
+
+TEST_F(CpuTest, SubWithoutCarryInActsLikeSub) {
+    load({0x98});         // SBC A, B
+    cpu.regs().f = 0x00;  // C = 0: nothing extra to subtract
+    cpu.regs().a = 0x3E;
+    cpu.regs().b = 0x12;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x2C);  // same as SUB
+}
+
+TEST_F(CpuTest, SbcCarryInBorrowsFromZero) {
+    load({0xDE, 0xFF});   // SBC A, 0xFF
+    cpu.regs().f = 0x10;  // 0001 0000, C = 1
+    cpu.regs().a = 0x00;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().a,
+              0x00);  // 0x00 - 0xFF - 1 = -0x100, wraps to 0x00 (-0x100 + 0x100 (256))
+    EXPECT_EQ(cpu.regs().f, 0xF0);  // Z = 1, N = 1, H =1 (0 < F + 1), C = 1 -> 1111 0000 = 0xF0
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
