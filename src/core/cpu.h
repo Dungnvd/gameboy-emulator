@@ -65,6 +65,9 @@ private:
     // Flags: - 0 H C (Z unchanged)
     void addHl(std::uint16_t value);
 
+    // SP + signed e8 (ADD SP, e8 / LD HL, SP + e8)
+    std::uint16_t spPlusE8(std::uint8_t e8);
+
     // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     void setFlags(bool z, bool n, bool h, bool c);
 

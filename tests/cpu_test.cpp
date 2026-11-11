@@ -632,3 +632,61 @@ TEST_F(CpuTest, AddHlSpSetsHalfCarryAndCarry) {
     EXPECT_EQ(cpu.regs().hl(), 0x0000);  // 0x0001 + 0xFFFF = 0x10000
     EXPECT_EQ(cpu.regs().f, 0x30);  // Z = 0 (unchanged), N = 0, H = 1, C = 1 -> 0011 0000 = 0x30
 }
+
+TEST_F(CpuTest, AddSpPositiveOffset) {
+    load({0xE8, 0x05});   // ADD SP, 5
+    cpu.regs().f = 0xF0;  // 1111 0000: Z and N must be clear
+    cpu.regs().sp = 0xD000;
+    EXPECT_EQ(cpu.step(), 4);  // fetch opcode + fetch byte e8 + low byte + high byte
+    EXPECT_EQ(cpu.regs().sp, 0xD005);
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0, N = 0, H = 0, C = 0
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, AddSpNegativeOffset) {
+    load({0xE8, 0xFE});  // ADD SP, -2 (0xFE = -2 in two's complement)
+    cpu.regs().f = 0x00;
+    cpu.regs().sp = 0xD000;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().sp, 0xCFFE);
+    EXPECT_EQ(cpu.regs().f, 0x00);
+}
+
+TEST_F(CpuTest, AddSpNegativeOffsetStillSetsCarry) {
+    load({0xE8, 0xFF});  // ADD SP, -1
+    cpu.regs().f = 0x00;
+    cpu.regs().sp = 0x00FF;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().sp, 0x00FE);
+    EXPECT_EQ(cpu.regs().f, 0x30);  // Z = 0, N = 0, H = 1 (F + F), C = 1 (FF + FF)
+}
+
+TEST_F(CpuTest, AddSpResultZeroButZStaysClear) {
+    load({0xE8, 0x08});  // ADD SP, 8
+    cpu.regs().f = 0x00;
+    cpu.regs().sp = 0xFFF8;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().sp, 0x0000);
+    EXPECT_EQ(cpu.regs().f, 0x30);  // Z = 0 (always), N = 0, H = 1, C = 1
+}
+
+TEST_F(CpuTest, LdHlSpPlusOffset) {
+    load({0xF8, 0x02});   // LD HL, SP + 2
+    cpu.regs().f = 0xF0;  // set all flags
+    cpu.regs().sp = 0xD000;
+    cpu.regs().setHl(0x1234);  // old HL must be overwrite, not added to
+    EXPECT_EQ(cpu.step(), 3);  // opcode + fetch e8 + write in HL
+    EXPECT_EQ(cpu.regs().hl(), 0xD002);
+    EXPECT_EQ(cpu.regs().sp, 0xD000);  // unchanged
+    EXPECT_EQ(cpu.regs().f, 0x00);
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, LdHlSpMinusOffset) {
+    load({0xF8, 0x80});  // LD Hl, SP - 128
+    cpu.regs().f = 0x00;
+    cpu.regs().sp = 0xD080;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().hl(), 0xD000);
+    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0, N = 0, H = 9, C = 1 (80 + 80 = 0x100)
+}

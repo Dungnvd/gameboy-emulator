@@ -228,6 +228,20 @@ int Cpu::step() {
         return 2;
     }
 
+    if (op == 0xE8) {
+        // ADD SP, e8: Add signed value e8 to SP
+        // 0xE8 = 11 101 000
+        regs_.sp = spPlusE8(fetch8());
+        return 4;
+    }
+
+    if (op == 0xF8) {
+        // LD HL, SP + e8: Add signed value e8 to SP and copy result in HL (SP unchanged)
+        // 0xF8 = 11 111 000
+        regs_.setHl(spPlusE8(fetch8()));
+        return 3;
+    }
+
     throw std::runtime_error("Unimplemented opcode");
 }
 
@@ -521,6 +535,20 @@ void Cpu::addHl(std::uint16_t value) {
 
     regs_.setHl(static_cast<std::uint16_t>(sum));
     setFlags(regs_.getFlag(Flag::Z), false, h, c);  // old Z
+}
+
+std::uint16_t Cpu::spPlusE8(std::uint8_t e8) {
+    // ADD signed value e8 to SP
+    // Flags: 0 0 H C
+    const int offset = (e8 < 0x80) ? e8 : e8 - 0x100;
+    const std::uint16_t sp = regs_.sp;
+    const std::uint16_t result = static_cast<std::uint16_t>(sp + offset);
+
+    const bool h = ((sp & 0x0F) + (e8 & 0x0F)) > 0x0F;  // carry from bit 3
+    const bool c = ((sp & 0xFF) + e8) > 0xFF;           // carry from bit 7
+
+    setFlags(false, false, h, c);
+    return result;
 }
 
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {
