@@ -193,7 +193,7 @@ int Cpu::step() {
     if ((op & 0xC7) == 0x05) {
         // DEC r8 ( 00 rrr 101): Decrement value in register r8 by 1
         // 0xC7 = 11 000 111 (mask)
-        // 0x04 = 00 000 101 (expected)
+        // 0x05 = 00 000 101 (expected)
         const int reg = (op >> 3) & 0x07;
         writeR8(reg, dec8(readR8(reg)));
         return (reg == 6) ? 3 : 1;
@@ -240,6 +240,14 @@ int Cpu::step() {
         // 0xF8 = 11 111 000
         regs_.setHl(spPlusE8(fetch8()));
         return 3;
+    }
+
+    if ((op & 0xC7) == 0x07) {
+        // (00 ooo 111): ooo = operation
+        // RLCA / RRCA / RLA / RRA / DAA / CPL / SCF / CCF
+        // 0x07 = 00 000 111 (expected)
+        accFlagOp((op >> 3) & 0x07);
+        return 1;
     }
 
     throw std::runtime_error("Unimplemented opcode");
@@ -458,7 +466,7 @@ void Cpu::add8(std::uint8_t value, bool carry) {
 
 void Cpu::sub8(std::uint8_t value, bool carry) {
     // carry = false: SUB A, value, A = A - value
-    // carry = old C: SUB A, value, A = A - value - carry
+    // carry = old C: SBC A, value, A = A - value - carry
     // SUB A, value: A = A - value. Destination is always A
     // Flags: Z 1 H C
     const std::uint8_t a = regs_.a;
@@ -549,6 +557,66 @@ std::uint16_t Cpu::spPlusE8(std::uint8_t e8) {
 
     setFlags(false, false, h, c);
     return result;
+}
+
+void Cpu::accFlagOp(int operation) {
+    // 0 = RLCA, 1 = RRCA, 2 = RLA, 3 = RRA, 4 = DAA, 5 = CPL, 6 = SCF, 7 = CCF
+    const std::uint8_t a = regs_.a;
+    const bool oldZ = regs_.getFlag(Flag::Z);
+    const bool oldC = regs_.getFlag(Flag::C);
+
+    switch (operation) {
+        case 0: {
+            // RLCA: Rotate A left circularly: bit 7 -> bit 0 and -> C
+            // Flags: 0 0 0 C
+            const bool bit7 = (a & 0x80) != 0;
+            regs_.a = static_cast<std::uint8_t>((a << 1) | (bit7 ? 0x01 : 0));
+            setFlags(false, false, false, bit7);
+            break;
+        }
+        case 1: {
+            // RRCA: Rotate A right circularly: bit 0 -> bit 7 and -> C
+            // Flags: 0 0 0 C
+            const bool bit0 = (a & 0x01) != 0;
+            regs_.a = static_cast<std::uint8_t>((a >> 1) | (bit0 ? 0x80 : 0));
+            setFlags(false, false, false, bit0);
+            break;
+        }
+        case 2: {
+            // RLA: Rotate A left through carry: old C -> bit 0, bit 7 -> C
+            // Flags: 0 0 0 C
+            const bool bit7 = (a & 0x80) != 0;
+            regs_.a = static_cast<std::uint8_t>((a << 1) | (oldC ? 0x01 : 0));
+            setFlags(false, false, false, bit7);
+            break;
+        }
+        case 3: {
+            // RRA: Rotate A right through carry: old C -> bit 7, bit 0 -> C
+            // Flags: 0 0 0 C
+            const bool bit0 = (a & 0x01) != 0;
+            regs_.a = static_cast<std::uint8_t>((a >> 1) | (oldC ? 0x80 : 0));
+            setFlags(false, false, false, bit0);
+            break;
+        }
+        case 5:
+            // CPL A = ~A (bitwise NOT)
+            // Flags: - 1 1 -
+            regs_.a = static_cast<std::uint8_t>(~a);
+            setFlags(oldZ, true, true, oldC);
+            break;
+        case 6:
+            // SCF: Set Carry Flag
+            // Flags: - 0 0 1
+            setFlags(oldZ, false, false, true);
+            break;
+        case 7:
+            // CCF: Complement (invert) Carry Flag
+            // Flags: - 0 0 !C
+            setFlags(oldZ, false, false, !oldC);
+            break;
+        default:
+            throw std::runtime_error("DAA not implemented yet");
+    }
 }
 
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {
