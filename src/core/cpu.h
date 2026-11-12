@@ -66,7 +66,12 @@ private:
     void addHl(std::uint16_t value);
 
     // SP + signed e8 (ADD SP, e8 / LD HL, SP + e8)
+    // Sets flags: 0 0 H C
     std::uint16_t spPlusE8(std::uint8_t e8);
+
+    // Block 0 ops on A: 00 ooo 111. operation (ooo)
+    // 0 = RLCA, 1 = RRCA, 2 = RLA, 3 = RRA, 4 = DAA, 5 = CPL, 6 = SCF, 7 = CCF
+    void accFlagOp(int operation);
 
     // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     void setFlags(bool z, bool n, bool h, bool c);

@@ -491,7 +491,7 @@ TEST_F(CpuTest, IncBClearsZnhAndKeepsCarry) {
     cpu.regs().b = 0x41;
     EXPECT_EQ(cpu.step(), 1);
     EXPECT_EQ(cpu.regs().b, 0x42);
-    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0, N = 0, H = 0, C = 1 (unchanged) -> 0001 0000 = 0x01
+    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0, N = 0, H = 0, C = 1 (unchanged) -> 0001 0000 = 0x10
     EXPECT_EQ(cpu.regs().pc, 0x0101);
 }
 
@@ -538,7 +538,7 @@ TEST_F(CpuTest, DecEToZeroSetsZero) {
     cpu.regs().e = 0x01;
     cpu.step();
     EXPECT_EQ(cpu.regs().e, 0x00);
-    EXPECT_EQ(cpu.regs().f, 0xC0);  // Z = 1, N = 1, H = 0. C = 0 -> 1100 0000 = 0x50
+    EXPECT_EQ(cpu.regs().f, 0xC0);  // Z = 1, N = 1, H = 0. C = 0 -> 1100 0000 = 0xC0
 }
 
 TEST_F(CpuTest, DecAWrapsSetsHalfCarryWithoutCarry) {
@@ -611,7 +611,7 @@ TEST_F(CpuTest, AddHlSetsHalfCarryFromBit11) {
     cpu.regs().setDe(0x0100);
     cpu.step();
     EXPECT_EQ(cpu.regs().hl(), 0x1000);
-    EXPECT_EQ(cpu.regs().f, 0x20);  // Z = 0, N = 0, H = 1, N = 0 -> 0010 0000 = 0x20
+    EXPECT_EQ(cpu.regs().f, 0x20);  // Z = 0, N = 0, H = 1, C = 0 -> 0010 0000 = 0x20
 }
 
 TEST_F(CpuTest, AddHlToItselfSetsCarryButNotZero) {
@@ -674,7 +674,7 @@ TEST_F(CpuTest, LdHlSpPlusOffset) {
     load({0xF8, 0x02});   // LD HL, SP + 2
     cpu.regs().f = 0xF0;  // set all flags
     cpu.regs().sp = 0xD000;
-    cpu.regs().setHl(0x1234);  // old HL must be overwrite, not added to
+    cpu.regs().setHl(0x1234);  // old HL must be overwritten, not added to
     EXPECT_EQ(cpu.step(), 3);  // opcode + fetch e8 + write in HL
     EXPECT_EQ(cpu.regs().hl(), 0xD002);
     EXPECT_EQ(cpu.regs().sp, 0xD000);  // unchanged
@@ -683,10 +683,130 @@ TEST_F(CpuTest, LdHlSpPlusOffset) {
 }
 
 TEST_F(CpuTest, LdHlSpMinusOffset) {
-    load({0xF8, 0x80});  // LD Hl, SP - 128
+    load({0xF8, 0x80});  // LD HL, SP - 128
     cpu.regs().f = 0x00;
     cpu.regs().sp = 0xD080;
     cpu.step();
     EXPECT_EQ(cpu.regs().hl(), 0xD000);
-    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0, N = 0, H = 9, C = 1 (80 + 80 = 0x100)
+    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0, N = 0, H = 0, C = 1 (80 + 80 = 0x100)
+}
+
+TEST_F(CpuTest, RlcaMovesBit7IntoCarryAndBit0) {
+    load({0x07});         // RLCA
+    cpu.regs().f = 0xE0;  // 1110 0000: Z N H set, C clear
+    cpu.regs().a = 0x85;  // 1000 0101
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x0B);  // 0000 1011: bit 7 wrapped around to bit 0
+    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0, N = 0, H = 0, C = 1 (old bit 7)
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, RlcaZeroResultKeepsZClear) {
+    load({0x07});         // RLCA
+    cpu.regs().f = 0x90;  // 1001 0000: Z and C set
+    cpu.regs().a = 0x00;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0 (always), C = 0 (old bit 7)
+}
+
+TEST_F(CpuTest, RrcaMovesBit0IntoCarryAndBit7) {
+    load({0x0F});  // RRCA
+    cpu.regs().f = 0x00;
+    cpu.regs().a = 0x01;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x80);  // 1000 0000: bit 0 wrapped around to bit 7
+    EXPECT_EQ(cpu.regs().f, 0x10);  // C = 1 (old bit 0)
+}
+
+TEST_F(CpuTest, RrcaClearsCarryWhenBit0Clear) {
+    load({0x0F});         // RRCA
+    cpu.regs().f = 0x10;  // C set
+    cpu.regs().a = 0x02;  // 0000 0010
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x01);  // 0000 0001
+    EXPECT_EQ(cpu.regs().f, 0x00);  // C = 0 (old bit 0)
+}
+
+TEST_F(CpuTest, RlaShiftsOldCarryIntoBit0) {
+    load({0x17});         // RLA
+    cpu.regs().f = 0x10;  // C set
+    cpu.regs().a = 0x40;  // 0100 0000
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x81);  // 1000 0001: old C went into bit 0 (RLCA would give 0x80)
+    EXPECT_EQ(cpu.regs().f, 0x00);  // C = 0 (old bit 7)
+}
+
+TEST_F(CpuTest, RlaMovesBit7IntoCarry) {
+    load({0x17});         // RLA
+    cpu.regs().f = 0x00;  // C = 0
+    cpu.regs().a = 0x80;  // 1000 0000
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);  // bit 7 left A (RLCA would give 0x01)
+    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0 (always), C = 1 (old bit 7)
+}
+
+TEST_F(CpuTest, RraShiftsOldCarryIntoBit7) {
+    load({0x1F});         // RRA
+    cpu.regs().f = 0x10;  // C = 1
+    cpu.regs().a = 0x02;  // 0000 0010
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x81);  // 1000 0001: old C went into bit 7 (RRCA would give 0x01)
+    EXPECT_EQ(cpu.regs().f, 0x00);  // C = 0 (old bit 0)
+}
+
+TEST_F(CpuTest, RraMovesBit0IntoCarry) {
+    load({0x1F});         // RRA
+    cpu.regs().f = 0x00;  // C = 0
+    cpu.regs().a = 0x03;  // 0000 0011
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x01);  // 0000 0001 (RRCA would give 0x81)
+    EXPECT_EQ(cpu.regs().f, 0x10);  // C = 1 (old bit 0)
+}
+
+TEST_F(CpuTest, CplFlipsAKeepsZAndCSet) {
+    load({0x2F});         // CPL
+    cpu.regs().f = 0x90;  // 1001 0000: Z C set, N H clear
+    cpu.regs().a = 0x35;  // 0011 0101
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0xCA);  // 1100 1010: flipped
+    EXPECT_EQ(cpu.regs().f,
+              0xF0);  // 1111 0000: Z and C unchanged while N H always 1 (hardware defined)
+}
+
+TEST_F(CpuTest, CplKeepsZAndCClear) {
+    load({0x2F});  // CPL
+    cpu.regs().f = 0x00;
+    cpu.regs().a = 0xFF;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);
+    EXPECT_EQ(cpu.regs().f, 0x60);  // 0110 0000
+}
+
+TEST_F(CpuTest, ScfSetsCarryClearsNh) {
+    load({0x37});         // SCF
+    cpu.regs().f = 0x60;  // 0110 0000: N H set, Z C clear
+    cpu.step();
+    EXPECT_EQ(cpu.regs().f, 0x10);  // Z = 0 (unchanged), N = 0, H = 0, C = 1
+}
+
+TEST_F(CpuTest, ScfKeepsZSet) {
+    load({0x37});         // SCF
+    cpu.regs().f = 0x80;  // 1000 0000: Z set
+    cpu.step();
+    EXPECT_EQ(cpu.regs().f, 0x90);  // Z = 1 (unchanged), N = 0, H = 0, C = 1
+}
+
+TEST_F(CpuTest, CcfFlipsCarryToZero) {
+    load({0x3F});         // CCF
+    cpu.regs().f = 0x70;  // 0111 0000: Z clear, N H C set
+    cpu.step();
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0 (unchanged), N = 0, H = 0, C = 0 (flipped)
+}
+
+TEST_F(CpuTest, CcfFlipsCarryToOneKeepsZ) {
+    load({0x3F});         // CCF
+    cpu.regs().f = 0x80;  // 1000 0000: Z set, N H C clear
+    cpu.step();
+    EXPECT_EQ(cpu.regs().f, 0x90);  // Z = 1 (unchanged), N = 0, H = 0, C = 1 (flipped)
 }
