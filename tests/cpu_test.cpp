@@ -810,3 +810,85 @@ TEST_F(CpuTest, CcfFlipsCarryToOneKeepsZ) {
     cpu.step();
     EXPECT_EQ(cpu.regs().f, 0x90);  // Z = 1 (unchanged), N = 0, H = 0, C = 1 (flipped)
 }
+
+TEST_F(CpuTest, DaaAfterAddFixesLowDigit) {
+    load({0x27});         // DAA
+    cpu.regs().f = 0x80;  // 1000 0000
+    cpu.regs().a = 0x3C;  // 0x15 + 0x27, after ADD (N = 0, H = 0, C = 0), Z set (wrong, it should
+                          // be 0) so DAA must recompute it
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().a, 0x42);  // low nibble > 9 -> 0x3C + 0x06 = 0x42 -> BCD 15 + 27 = 42
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0 (recomputed), N = 0 (unchanged), H = 0 (always) , C = 0
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+}
+
+TEST_F(CpuTest, DaaAfterAddUsesHalfCarry) {
+    load({0x27});         // DAA
+    cpu.regs().f = 0x20;  // 0010 0000, after ADD with H = 1: 0x09 + 0x08 = 0x11
+    cpu.regs().a = 0x11;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x17);  // H = 1 -> 0x11 + 0x06 = 0x17 -> BCD 9 + 8 = 17;
+    EXPECT_EQ(cpu.regs().f, 0x00);  // H cleared (always)
+}
+
+TEST_F(CpuTest, DaaAfterAddFixesHighDigitAndSetsCarry) {
+    load({0x27});         // DAA
+    cpu.regs().f = 0x00;  // after ADD: 0x90 + 0x20 = 0xB0, no carry
+    cpu.regs().a = 0xB0;  // A > 0x99: high digit B is not a decimal digit
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x10);  // A > 0x99 -> 0xB0 + 0x60 = 0x110 -> 0x10
+    EXPECT_EQ(cpu.regs().f, 0x10);  // 0001 0000: C = 1 -> BCD 90 + 20 = 110
+}
+
+TEST_F(CpuTest, DaaAfterAddUsesCarry) {
+    load({0x27});         // DAA
+    cpu.regs().f = 0x10;  // After ADD with C = 1: 0x90 + 0x90 = 0x120, overflowed
+    cpu.regs().a = 0x20;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x80);  // C = 1 -> 0x20 + 0x60 = 0x80-> BCD 90 + 90 = 180
+    EXPECT_EQ(cpu.regs().f, 0x10);  // C stays 1
+}
+
+TEST_F(CpuTest, DaaAfterAddWrapsToZero) {
+    load({0x27});         // DAA
+    cpu.regs().f = 0x00;  // After ADD: 0x45 + 0x55 = 0x9A
+    cpu.regs().a = 0x9A;  // both fixes apply: A > 0x99 and digit A > 9
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);  // 0x9A + 0x66 = 0x100 -> 0x00
+    EXPECT_EQ(cpu.regs().f, 0x90);  // Z = 1, C = 1: BCD 45 + 55 = 100
+}
+
+TEST_F(CpuTest, DaaAfterSubUsesHalfCarry) {
+    load({0x27});         // DAA
+    cpu.regs().f = 0x60;  // 0110 0000: After SUB with N = 1, H = 1: 0x42 - 0x15 = 0x2D
+    cpu.regs().a = 0x2D;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x27);  // H = 1 -> 0x2D - 0x06 -> BCD 42 - 15 = 27
+    EXPECT_EQ(cpu.regs().f, 0x40);  // N = 1 (unchanged), H cleared
+}
+
+TEST_F(CpuTest, DaaAfterSubUsesCarry) {
+    load({0x27});         // DAA
+    cpu.regs().f = 0x50;  // After SUB with N = 1, C = 1: 0x10 - 0x20 = 0xF0
+    cpu.regs().a = 0xF0;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x90);  // C = 1 -> 0xF0 - 0x60 = 0x90 -> BCD 10 - 20 = 90 with a borrow
+    EXPECT_EQ(cpu.regs().f, 0x50);  // 0101 0000, N = 1 and C = 1 (DAA never clears C)
+}
+
+TEST_F(CpuTest, DaaAfterSubDoesNotCheckDigitRange) {
+    load({0x27});         // DAA
+    cpu.regs().f = 0x40;  // 0100 0000: N = 1, H = 0, C = 0
+    cpu.regs().a = 0x0A;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x0A);  // DAA in SUB only looks at H and C, not A's digits
+    EXPECT_EQ(cpu.regs().f, 0x40);
+}
+
+TEST_F(CpuTest, BcdAddition19Plus28) {
+    load({0x3E, 0x19, 0xC6, 0x28, 0x27});  // LD A, 0x19; ADD A, 0x28; DAA
+    cpu.step();                            // LD A, 0x19
+    cpu.step();                            // ADD A, 0x28 -> 0x41, H = 1
+    cpu.step();                            // DAA
+    EXPECT_EQ(cpu.regs().a, 0x47);         // BCD 19 + 28 = 47
+}

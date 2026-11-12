@@ -440,7 +440,7 @@ void Cpu::alu8(int operation, std::uint8_t value) {
             break;
 
         default:
-            throw std::runtime_error("ALU operation not implemented yet");
+            throw std::logic_error("unreachable: operation must be 0 - 7");
     }
 }
 
@@ -598,6 +598,37 @@ void Cpu::accFlagOp(int operation) {
             setFlags(false, false, false, bit0);
             break;
         }
+        case 4: {
+            // DAA: Decimal Adjust Accumulator: fix A after a BCD ADD/ADC/SUB/SBC
+            // Flags: Z - 0 C (N unchanged, H cleared and C only set, never cleared)
+            const bool n = regs_.getFlag(Flag::N);
+            const bool h = regs_.getFlag(Flag::H);
+            bool carry = oldC;
+            int adjust = 0;
+            if (!n) {
+                // After an addition: a digit above 9 or a (half) carry out of it, needs + 6
+                if (h || (a & 0x0F) > 0x09) {
+                    adjust |= 0x06;  // fix low digit
+                }
+                if (oldC || a > 0x99) {
+                    adjust |= 0x60;  // fix high digit
+                    carry = true;    // BCD result is >= 100
+                }
+                regs_.a = static_cast<std::uint8_t>(a + adjust);
+            } else {
+                // After a subtraction: only a borrow needs a fix (H -> -0x06, C -> -0x60).
+                // Digit range is not checked
+                if (h) {
+                    adjust |= 0x06;
+                }
+                if (oldC) {
+                    adjust |= 0x60;
+                }
+                regs_.a = static_cast<std::uint8_t>(a - adjust);
+            }
+            setFlags(regs_.a == 0, n, false, carry);
+            break;
+        }
         case 5:
             // CPL A = ~A (bitwise NOT)
             // Flags: - 1 1 -
@@ -615,7 +646,7 @@ void Cpu::accFlagOp(int operation) {
             setFlags(oldZ, false, false, !oldC);
             break;
         default:
-            throw std::runtime_error("DAA not implemented yet");
+            throw std::logic_error("unreachable: operation must be 0 - 7");
     }
 }
 
