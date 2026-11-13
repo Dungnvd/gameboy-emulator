@@ -250,6 +250,47 @@ int Cpu::step() {
         return 1;
     }
 
+    if (op == 0x18) {
+        // JR e8 (00 011 000): Relative jump to address n16 = PC + e8
+        jumpRelative(fetch8());
+        return 3;
+    }
+
+    if ((op & 0xE7) == 0x20) {
+        // JR cc, e8 (00 1cc 000): Relative jump if condition cc is met
+        // 0xE7 = 11 100 111 (mask)
+        // 0x20 = 00 100 000 (expected)
+        const std::uint8_t e8 = fetch8();  // always read, even if not taken
+        if (condition((op >> 3) & 0x03)) {
+            jumpRelative(e8);
+            return 3;
+        }
+        return 2;
+    }
+
+    if (op == 0xC3) {
+        // JP n16 (11 000 011): Jump to address n16
+        regs_.pc = fetch16();
+        return 4;
+    }
+
+    if ((op & 0xE7) == 0xC2) {
+        // JP cc, n16 (11 0cc 010): Jump to address n16 if condition cc is met
+        // 0xC2 = 11 000 010 (expected)
+        const std::uint16_t addr = fetch16();  // always read, even if not taken
+        if (condition((op >> 3) & 0x03)) {
+            regs_.pc = addr;
+            return 4;
+        }
+        return 3;
+    }
+
+    if (op == 0xE9) {
+        // JP HL (11 101 001): Jump to address HL
+        regs_.pc = regs_.hl();
+        return 1;
+    }
+
     throw std::runtime_error("Unimplemented opcode");
 }
 
@@ -648,6 +689,29 @@ void Cpu::accFlagOp(int operation) {
         default:
             throw std::logic_error("unreachable: operation must be 0 - 7");
     }
+}
+
+bool Cpu::condition(int cc) const {
+    // Condition code (cc): 0 = NZ, 1 = Z, 2 = NC, 3 = C
+    switch (cc) {
+        case 0:
+            return !regs_.getFlag(Flag::Z);
+        case 1:
+            return regs_.getFlag(Flag::Z);
+        case 2:
+            return !regs_.getFlag(Flag::C);
+        case 3:
+            return regs_.getFlag(Flag::C);
+        default:
+            throw std::logic_error("unreachable: cc must be 0 - 3");
+    }
+}
+
+void Cpu::jumpRelative(std::uint8_t e8) {
+    // e8: 0x00-0x7F = 0..127, 0x80-0xFF = -128..-1
+    // bit 7 is sign bit
+    const int offset = (e8 < 0x80) ? e8 : e8 - 0x100;
+    regs_.pc = static_cast<std::uint16_t>(regs_.pc + offset);
 }
 
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {

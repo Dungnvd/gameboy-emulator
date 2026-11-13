@@ -892,3 +892,115 @@ TEST_F(CpuTest, BcdAddition19Plus28) {
     cpu.step();                            // DAA
     EXPECT_EQ(cpu.regs().a, 0x47);         // BCD 19 + 28 = 47
 }
+
+TEST_F(CpuTest, JpAbsolute) {
+    load({0xC3, 0x50, 0x01});  // JP 0x0150 (little-endian: low byte first)
+    EXPECT_EQ(cpu.step(),
+              4);  // fetch opcode + read low byte + read high byte + load address into PC
+    EXPECT_EQ(cpu.regs().pc, 0x0150);
+}
+
+TEST_F(CpuTest, JpHl) {
+    load({0xE9});  // JP HL
+    cpu.regs().setHl(0xC000);
+    EXPECT_EQ(cpu.step(), 1);  // no memory read: PC is copied from HL
+    EXPECT_EQ(cpu.regs().pc, 0xC000);
+}
+
+TEST_F(CpuTest, JpNzNotTakenWhenZSet) {
+    load({0xC2, 0x50, 0x01});  // JP NZ, 0x0150
+    cpu.regs().f = 0x80;       // 1000 0000: Z = 1 -> NZ false -> Not Jump
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0103);
+}
+
+TEST_F(CpuTest, JpZNotTakenWhenZClear) {
+    load({0xCA, 0x50, 0x01});  // JP Z, 0x0150
+    cpu.regs().f = 0x10;       // 0001 0000: Z = 0 -> Z false -> Not Jump
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0103);
+}
+
+TEST_F(CpuTest, JpNcNotTakenWhenCSet) {
+    load({0xD2, 0x50, 0x01});  // JP NC, 0x0150
+    cpu.regs().f = 0x10;       // 0001 0000: C = 1 -> NC false -> Not Jump
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0103);
+}
+
+TEST_F(CpuTest, JpCNotTakenWhenCClear) {
+    load({0xDA, 0x50, 0x01});  // JP C, 0x0150
+    cpu.regs().f = 0x80;       // 1000 0000: C = 0 -> C false -> Not jump
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0103);
+}
+
+TEST_F(CpuTest, JpCTakenWhenCSet) {
+    load({0xDA, 0x50, 0x01});  // JP C, 0x0150
+    cpu.regs().f = 0x10;       // 0001 0000: C = 1 -> C true -> jump
+    EXPECT_EQ(cpu.step(), 4);
+    EXPECT_EQ(cpu.regs().pc, 0x0150);
+}
+
+TEST_F(CpuTest, JrForward) {
+    load({0x18, 0x05});                // JR +5
+    EXPECT_EQ(cpu.step(), 3);          // fetch opcode + read e8 + add e8 to PC
+    EXPECT_EQ(cpu.regs().pc, 0x0107);  // counted from next instruction: 0x0102 + 5
+}
+
+TEST_F(CpuTest, JrMinus2JumpsToItself) {
+    load({0x18, 0xFE});  // JR -2 (0xFE = -2): classic infinite loop
+    cpu.step();
+    EXPECT_EQ(cpu.regs().pc, 0x0100);  // 0x0102 - 2 = back to JR opcode itself
+}
+
+TEST_F(CpuTest, JrNzTakenWhenZClear) {
+    load({0x20, 0x05});   // JR NZ, +5
+    cpu.regs().f = 0x10;  // 0001 0000: Z = 0 -> NZ true -> Jump
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0107);
+}
+
+TEST_F(CpuTest, JrZTakenWhenZSet) {
+    load({0x28, 0x05});   // JR Z, +5
+    cpu.regs().f = 0x80;  // 1000 0000: Z = 1 -> Z true -> jump
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0107);
+}
+
+TEST_F(CpuTest, JrNcTakenWhenCClear) {
+    load({0x30, 0x05});   // JR NC, +5
+    cpu.regs().f = 0x80;  // 1000 0000: C = 0 -> NC true -> jump
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0107);
+}
+
+TEST_F(CpuTest, JrCTakenWhenCSet) {
+    load({0x38, 0x05});   // JR C, +5
+    cpu.regs().f = 0x10;  // C = 1 -> jump
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0107);
+}
+
+TEST_F(CpuTest, JrCNotTakenWhenCClear) {
+    load({0x38, 0x05});   // JR C, +5
+    cpu.regs().f = 0x00;  // C = 0 -> not jump
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().pc, 0x0102);  // not taken: still skips e8 byte
+}
+
+TEST_F(CpuTest, CountdownLoopWithDecAndJrNz) {
+    load({0x06, 0x03, 0x05, 0x20, 0xFD});
+    // 0x0100: {0x06, 0x03}:    LD B, 3         (2 M-cycles)
+    // 0x0102: {0x05}:          DEC B           (1 M-cycle)
+    // 0x0103: {0x20, 0xFD}:    JR NZ, -3      (3 taken / 2 not taken), 0x0105 - 3 = 0x0102
+    // 0x0105:                  exit
+    int cycles = 0;
+    for (int i = 0; i < 7; i++) {  // LD, then (DEC, JR) x 3
+        cycles += cpu.step();
+    }
+
+    EXPECT_EQ(cpu.regs().b, 0x00);
+    EXPECT_EQ(cpu.regs().pc, 0x0105);  // last JR NZ not taken because DEC set Z = 1 (B = 0)
+    EXPECT_EQ(cycles, 13);             // 2 + (1 + 3) + (1 + 3) + (1 + 2)
+}
