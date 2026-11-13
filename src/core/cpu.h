@@ -73,6 +73,12 @@ private:
     // 0 = RLCA, 1 = RRCA, 2 = RLA, 3 = RRA, 4 = DAA, 5 = CPL, 6 = SCF, 7 = CCF
     void accFlagOp(int operation);
 
+    // Condition code (cc) for JP / JR / CALL / RET
+    // 0 = NZ, 1 = Z, 2 = NC, 3 = C
+    bool condition(int cc) const;
+    // JR: PC = PC + signed e8. PC already points to next instruction
+    void jumpRelative(std::uint8_t e8);
+
     // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     void setFlags(bool z, bool n, bool h, bool c);
 
