@@ -291,6 +291,50 @@ int Cpu::step() {
         return 1;
     }
 
+    if (op == 0xCD) {
+        // CALL n16 (11 001 101): Push address of next instruction, then jump to n16
+        const std::uint16_t addr = fetch16();
+        call(addr);
+        return 6;
+    }
+
+    if ((op & 0xE7) == 0xC4) {
+        // CALL cc, n16 (11 0cc 100): Call n16 if condition cc is met
+        // 0xE7 = 11 100 111 (mask)
+        // 0xC4 = 11 000 100 (expected)
+        const std::uint16_t addr = fetch16();
+        if (condition((op >> 3) & 0x03)) {
+            call(addr);
+            return 6;
+        }
+        return 3;
+    }
+
+    if (op == 0xC9) {
+        // RET (11 001 001): Return from subroutine: pop PC from stack
+        regs_.pc = pop16();
+        return 4;
+    }
+
+    if ((op & 0xE7) == 0xC0) {
+        // RET cc (11 0cc 000): Return from subroutine if condition cc is met
+        // 0xC0 = 11 000 000 (expected)
+        if (condition((op >> 3) & 0x03)) {
+            regs_.pc = pop16();
+            return 5;
+        }
+
+        return 2;  // not taken: nothing popped, SP unchanged
+    }
+
+    if ((op & 0xC7) == 0xC7) {
+        // RST vec (11 nnn 111): Call address vec = nnn * 8 (0x00, 0x08,..0x38)
+        // 0xC7 = 11 000 111 (mask)
+        // 0x38 = 00 111 000 (keep nnn in place -> already nnn * 8)
+        call(static_cast<std::uint16_t>(op & 0x38));
+        return 4;
+    }
+
     throw std::runtime_error("Unimplemented opcode");
 }
 
@@ -712,6 +756,12 @@ void Cpu::jumpRelative(std::uint8_t e8) {
     // bit 7 is sign bit
     const int offset = (e8 < 0x80) ? e8 : e8 - 0x100;
     regs_.pc = static_cast<std::uint16_t>(regs_.pc + offset);
+}
+
+void Cpu::call(std::uint16_t addr) {
+    // PC already points to next instruction
+    push16(regs_.pc);
+    regs_.pc = addr;
 }
 
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {

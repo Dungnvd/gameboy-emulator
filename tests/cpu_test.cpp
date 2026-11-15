@@ -1004,3 +1004,89 @@ TEST_F(CpuTest, CountdownLoopWithDecAndJrNz) {
     EXPECT_EQ(cpu.regs().pc, 0x0105);  // last JR NZ not taken because DEC set Z = 1 (B = 0)
     EXPECT_EQ(cycles, 13);             // 2 + (1 + 3) + (1 + 3) + (1 + 2)
 }
+
+TEST_F(CpuTest, CallPushesReturnAddressAndJumps) {
+    load({0xCD, 0x50, 0x01});  // CALL 0x0150
+    cpu.regs().sp = 0xD000;
+    EXPECT_EQ(cpu.step(), 6);  // opcode + low + high + internal (SP - 1) + push high + push low
+    EXPECT_EQ(cpu.regs().pc, 0x0150);
+    EXPECT_EQ(cpu.regs().sp, 0xCFFE);
+    EXPECT_EQ(mmu.read(0xCFFF), 0x01);  // return address 0x0103 (after 3-byte CALL): high byte
+    EXPECT_EQ(mmu.read(0xCFFE), 0x03);  // low byte
+}
+
+TEST_F(CpuTest, CallNzNotTakenWhenZSet) {
+    load({0xC4, 0x50, 0x01});  // CALL NZ, 0x0150
+    cpu.regs().sp = 0xD000;
+    cpu.regs().f = 0x80;  // Z = 1 -> NZ false -> NOT CALL
+    EXPECT_EQ(cpu.step(), 3);
+    EXPECT_EQ(cpu.regs().pc, 0x0103);  // still skips 2 address bytes
+    EXPECT_EQ(cpu.regs().sp, 0xD000);  // nothing pushed
+}
+
+TEST_F(CpuTest, CallCTakenWhenCSet) {
+    load({0xDC, 0x50, 0x01});  // CALL C, 0x0150
+    cpu.regs().sp = 0xD000;
+    cpu.regs().f = 0x10;  // C = 1 -> C true -> CALL
+    EXPECT_EQ(cpu.step(), 6);
+    EXPECT_EQ(cpu.regs().pc, 0x0150);
+    EXPECT_EQ(cpu.regs().sp, 0xCFFE);
+    EXPECT_EQ(mmu.read(0xCFFE), 0x03);
+}
+
+TEST_F(CpuTest, RetPopsReturnAddress) {
+    load({0xC9});  // RET
+    cpu.regs().sp = 0xCFFE;
+    mmu.write(0xCFFE, 0x03);   // low byte
+    mmu.write(0xCFFF, 0x02);   // high byte
+    EXPECT_EQ(cpu.step(), 4);  // opcode + pop low + pop high + load PC
+    EXPECT_EQ(cpu.regs().pc, 0x0203);
+    EXPECT_EQ(cpu.regs().sp, 0xD000);
+}
+
+TEST_F(CpuTest, RetZTakenWhenZSet) {
+    load({0xC8});  // RET Z
+    cpu.regs().sp = 0xCFFE;
+    cpu.regs().f = 0x80;  // Z set -> RET
+    mmu.write(0xCFFE, 0x03);
+    mmu.write(0xCFFF, 0x02);
+    EXPECT_EQ(cpu.step(), 5);  // one more than RET: internal cycle to check condition code
+    EXPECT_EQ(cpu.regs().pc, 0x0203);
+    EXPECT_EQ(cpu.regs().sp, 0xD000);
+}
+
+TEST_F(CpuTest, RetNcNotTakenWhenCSet) {
+    load({0xD0});  // RET NC
+    cpu.regs().sp = 0xCFFE;
+    cpu.regs().f = 0x10;               // C = 1 -> Not RET
+    EXPECT_EQ(cpu.step(), 2);          // opcode + internal check C flag
+    EXPECT_EQ(cpu.regs().pc, 0x0101);  // falls through to next instruction
+    EXPECT_EQ(cpu.regs().sp, 0xCFFE);  // nothing popped
+}
+
+TEST_F(CpuTest, RstPushesReturnAddressAndJumpsToVector) {
+    load({0xEF});  // RST 0x28 (11 101 111: nnn = 5 -> 5 * 8 = 0x28)
+    cpu.regs().sp = 0xD000;
+    EXPECT_EQ(cpu.step(), 4);  // opcode + internal (SP - 1) + push high + push low
+    EXPECT_EQ(cpu.regs().pc, 0x0028);
+    EXPECT_EQ(cpu.regs().sp, 0xCFFE);
+    EXPECT_EQ(mmu.read(0xCFFE), 0x01);  // return address 0x0101, low byte
+}
+
+TEST_F(CpuTest, CallThenRetReturnsToCaller) {
+    load({0xCD, 0x06, 0x01, 0x00, 0x00, 0x00, 0x3E, 0x42, 0xC9});
+    // 0x0100: {0xCD, 0x06, 0x01}:    CALL 0x0106     (6 M-cycles), pushes return address 0x0103
+    // 0x0103: {0x00}:                NOP             <- return here
+    // 0x0104: {0x00, 0x00}:          padding         (never executed)
+    // 0x0106: {0x3E, 0x42}:          LD A, 0x42      (2 M-cycles), subroutine
+    // 0x0108: {0xC9}:                RET             (4 M-cycles), pops 0x0103 into PC
+    cpu.regs().sp = 0xD000;
+    int cycles = 0;
+    for (int i = 0; i < 3; i++) {  // CALL, LD, RET
+        cycles += cpu.step();
+    }
+    EXPECT_EQ(cpu.regs().a, 0x42);
+    EXPECT_EQ(cpu.regs().pc, 0x0103);  // back right after the CALL
+    EXPECT_EQ(cpu.regs().sp, 0xD000);  // stack balanced again
+    EXPECT_EQ(cycles, 12);             // 6 + 2 + 4
+}
