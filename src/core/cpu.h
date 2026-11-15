@@ -79,6 +79,9 @@ private:
     // JR: PC = PC + signed e8. PC already points to next instruction
     void jumpRelative(std::uint8_t e8);
 
+    // CALL / RST: push address of next instruction (current PC), then jump to address
+    void call(std::uint16_t addr);
+
     // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     void setFlags(bool z, bool n, bool h, bool c);
 
