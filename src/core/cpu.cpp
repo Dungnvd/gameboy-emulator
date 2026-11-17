@@ -335,6 +335,11 @@ int Cpu::step() {
         return 4;
     }
 
+    if (op == 0xCB) {
+        // CB prefix: next byte selects one of 256 extended instructions
+        return executeCb(fetch8());
+    }
+
     throw std::runtime_error("Unimplemented opcode");
 }
 
@@ -764,6 +769,81 @@ void Cpu::call(std::uint16_t addr) {
     regs_.pc = addr;
 }
 
+int Cpu::executeCb(std::uint8_t op) {
+    // CB opcode (xx yyy zzz): xx = group, yyy = operation, zzz = r8 index
+    const int group = op >> 6;
+    const int operation = (op >> 3) & 0x07;
+    const int reg = op & 0x07;
+
+    if (group == 0) {
+        // Rotate / shift / swap r8 (00 yyy zzz)
+        writeR8(reg, rotateShift(operation, readR8(reg)));
+        return (reg == 6) ? 4 : 2;  // (HL): prefix + opcode + read + write
+    }
+
+    throw std::runtime_error("CB BIT / RES / SET not implemented yet");
+}
+
+std::uint8_t Cpu::rotateShift(int operation, std::uint8_t value) {
+    // Flags: Z 0 0 C (SWAP: C = 0)
+    // Unlike RLCA / RRCA / RLA / RRA, Z is computed
+    const bool oldC = regs_.getFlag(Flag::C);
+    const bool bit7 = (value & 0x80) != 0;
+    const bool bit0 = (value & 0x01) != 0;
+    int result = 0;
+    bool carry = false;
+
+    switch (operation) {
+        case 0:
+            // RLC: Rotate left circularly: bit 7 -> bit 0 and -> C
+            result = (value << 1) | (bit7 ? 0x01 : 0);
+            carry = bit7;
+            break;
+        case 1:
+            // RRC: Rotate right circularly: bit 0 -> bit 7 and -> C
+            result = (value >> 1) | (bit0 ? 0x80 : 0);
+            carry = bit0;
+            break;
+        case 2:
+            // RL: Rotate left through carry: old C -> bit 0, bit 7 -> C
+            result = (value << 1) | (oldC ? 0x01 : 0);
+            carry = bit7;
+            break;
+        case 3:
+            // RR: Rotate right through carry: old C -> bit 7, bit 0 -> C
+            result = (value >> 1) | (oldC ? 0x80 : 0);
+            carry = bit0;
+            break;
+        case 4:
+            // SLA: Shift Left Arithmetically: 0 -> bit 0, bit 7 -> C
+            result = value << 1;
+            carry = bit7;
+            break;
+        case 5:
+            // SRA: Shift Right Arithmetically: bit 7 stays (sign kept), bit 0 -> C
+            result = (value >> 1) | (value & 0x80);
+            carry = bit0;
+            break;
+        case 6:
+            // SWAP: Exchange high and low nibbles
+            result = (value << 4) | (value >> 4);
+            carry = false;
+            break;
+        case 7:
+            // SRL: Shift Right Logically: 0 -> bit 7, bit 0 -> C
+            result = value >> 1;
+            carry = bit0;
+            break;
+        default:
+            throw std::logic_error("unreachable: operation must be 0 - 7");
+    }
+
+    const std::uint8_t r = static_cast<std::uint8_t>(result);
+    setFlags(r == 0, false, false, carry);
+    return r;
+
+}
+
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {
     // f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     // Z (0x80): set if result is 0
@@ -801,5 +881,4 @@ std::uint16_t Cpu::pop16() {
 
     return static_cast<std::uint16_t>((highByte << 8) | lowByte);
 }
-
 }  // namespace gb

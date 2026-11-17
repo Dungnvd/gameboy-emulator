@@ -82,6 +82,15 @@ private:
     // CALL / RST: push address of next instruction (current PC), then jump to address
     void call(std::uint16_t addr);
 
+    // CB-prefixed (second byte opcode). Return total M-cycles, prefix included
+    // CB opcode = xx yyy zzz
+    int executeCb(std::uint8_t op);
+    // CB rotate / shift / swap, used for CB opcode with xx = 00
+    // operation (yyy): 0 = RLC, 1 = RRC, 2 = RL, 3 = RR, 4 = SLA, 5 = SRA, 6 = SWAP, 7 = SRL
+    // value: byte read from r8 selected by zzz
+    // Return result, set flags: Z 0 0 C
+    std::uint8_t rotateShift(int operation, std::uint8_t value);
+
     // Write all four flags at once: f  = [ Z | N | H | C | 0 | 0 | 0 | 0 ]
     void setFlags(bool z, bool n, bool h, bool c);
 
