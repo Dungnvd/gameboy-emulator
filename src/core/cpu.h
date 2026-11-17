@@ -84,6 +84,7 @@ private:
 
     // CB-prefixed (second byte opcode). Return total M-cycles, prefix included
     // CB opcode = xx yyy zzz
+    // xx: 00 = rotate / shift / SWAP, 01 = BIT, 10 = RES, 11 = SET
     int executeCb(std::uint8_t op);
     // CB rotate / shift / swap, used for CB opcode with xx = 00
     // operation (yyy): 0 = RLC, 1 = RRC, 2 = RL, 3 = RR, 4 = SLA, 5 = SRA, 6 = SWAP, 7 = SRL

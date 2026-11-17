@@ -781,7 +781,31 @@ int Cpu::executeCb(std::uint8_t op) {
         return (reg == 6) ? 4 : 2;  // (HL): prefix + opcode + read + write
     }
 
-    throw std::runtime_error("CB BIT / RES / SET not implemented yet");
+    const int bit = operation;  // group 01 / 10 / 11: yyy is bit index
+    const std::uint8_t mask = static_cast<std::uint8_t>(1 << bit);
+    const std::uint8_t value = readR8(reg);
+
+    if (group == 1) {
+        // BIT b, r8 (01 bbb zzz): Test bit b. Z = 1 if bit is 0
+        // Flags: Z 0 1 - (C unchanged). r8 is only read, never written
+        setFlags((value & mask) == 0, false, true, regs_.getFlag(Flag::C));
+        return (reg == 6) ? 3 : 2;  // (HL): prefix + opcode + read (no write)
+    }
+
+    if (group == 2) {
+        // RES b, r8 (10 bbb zzz): Reset bit b to 0.
+        // Flags: - - - - (unchanged)
+        writeR8(reg, static_cast<std::uint8_t>(value & ~mask));
+        return (reg == 6) ? 4 : 2;  // (HL): prefix + opcode + read + write
+    }
+
+    if (group == 3) {
+        // SET b, r8 (11 bbb zzz): Set bit b to 1.
+        // Flags: - - - - (unchanged)
+        writeR8(reg, static_cast<std::uint8_t>(value | mask));
+        return (reg == 6) ? 4 : 2;
+    }
+    throw std::logic_error("unreachable: group must be 0 - 3");
 }
 
 std::uint8_t Cpu::rotateShift(int operation, std::uint8_t value) {
@@ -841,7 +865,6 @@ std::uint8_t Cpu::rotateShift(int operation, std::uint8_t value) {
     const std::uint8_t r = static_cast<std::uint8_t>(result);
     setFlags(r == 0, false, false, carry);
     return r;
-
 }
 
 void Cpu::setFlags(bool z, bool n, bool h, bool c) {

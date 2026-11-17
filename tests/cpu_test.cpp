@@ -1189,3 +1189,72 @@ TEST_F(CpuTest, CbRlcHlIndirect) {
     EXPECT_EQ(cpu.step(), 4);           // prefix + opcode + read + write
     EXPECT_EQ(mmu.read(0xC000), 0x0B);  // 0000 1011
 }
+
+TEST_F(CpuTest, CbBit7HSetBitClearsZ) {
+    load({0xCB, 0x7C});   // BIT 7, H
+    cpu.regs().f = 0x90;  // 1001 0000: Z must be cleared, C must stay
+    cpu.regs().h = 0x80;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(
+        cpu.regs().f,
+        0x30);  // 0011 0000: Z = 0 (bit7 is 1), N = 0, H = 1 (always, hardware defined), C = 1
+    EXPECT_EQ(cpu.regs().h, 0x80);  // BIT reads only: H unchanged
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, CbBit0AClearBitSetsZ) {
+    load({0xCB, 0x47});   // BIT 0, A
+    cpu.regs().f = 0x40;  // 0100 0000: N must be cleared, C must stay
+    cpu.regs().a = 0xFE;  // 1111 1110: only bit 0 is 0
+    cpu.step();
+    EXPECT_EQ(
+        cpu.regs().f,
+        0xA0);  // 1010 0000: Z = 1 (bit0 is 0), N = 0, H = 1 (always, hardware defined), C = 0
+    EXPECT_EQ(cpu.regs().a, 0xFE);  // unchanged
+}
+
+TEST_F(CpuTest, CbBitHlIndirect) {
+    load({0xCB, 0x46});  // BIT 0, (HL)
+    cpu.regs().setHl(0xC000);
+    cpu.regs().f = 0x80;                // Z = 1
+    mmu.write(0xC000, 0x01);            // bit 0 = 1
+    EXPECT_EQ(cpu.step(), 3);           // prefix + opcode + read (HL): no write back
+    EXPECT_EQ(cpu.regs().f, 0x20);      // Z = 0 (bit 0 is 1), N = 0, H = 1, C = 0
+    EXPECT_EQ(mmu.read(0xC000), 0x01);  // memory unchanged
+}
+
+TEST_F(CpuTest, CbRes3B) {
+    load({0xCB, 0x98});   // RES 3, B
+    cpu.regs().f = 0xF0;  // RES must not touch any flag
+    cpu.regs().b = 0xFF;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().b, 0xF7);  // 1111 0111: bit 3 cleared
+    EXPECT_EQ(cpu.regs().f, 0xF0);  // unchanged
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, CbResHlIndirectKeepsClearBitClear) {
+    load({0xCB, 0x86});  // RES 0, (HL)
+    cpu.regs().setHl(0xC000);
+    mmu.write(0xC000, 0xFE);            // 1111 1110: bit 0 already cleared
+    EXPECT_EQ(cpu.step(), 4);           // prefix + opcode + read (HL) + write (HL)
+    EXPECT_EQ(mmu.read(0xC000), 0xFE);  // stays 0
+}
+
+TEST_F(CpuTest, CbSet5C) {
+    load({0xCB, 0xE9});   // SET 5, C
+    cpu.regs().f = 0x50;  // SET must not touch any flag
+    cpu.regs().c = 0x00;
+    EXPECT_EQ(cpu.step(), 2);
+    EXPECT_EQ(cpu.regs().c, 0x20);  // 0010 0000: only bit 5 set
+    EXPECT_EQ(cpu.regs().f, 0x50);  // unchanged
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, CbSetHlIndirectKeepsSetBitSet) {
+    load({0xCB, 0xFE});  // SET 7, (HL)
+    cpu.regs().setHl(0xC000);
+    mmu.write(0xC000, 0x80);  // bit 7 already set
+    EXPECT_EQ(cpu.step(), 4);
+    EXPECT_EQ(mmu.read(0xC000), 0x80);  // bit 7 stays 1
+}
