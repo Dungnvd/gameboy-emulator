@@ -1090,3 +1090,102 @@ TEST_F(CpuTest, CallThenRetReturnsToCaller) {
     EXPECT_EQ(cpu.regs().sp, 0xD000);  // stack balanced again
     EXPECT_EQ(cycles, 12);             // 6 + 2 + 4
 }
+
+TEST_F(CpuTest, CbRlcB) {
+    load({0xCB, 0x00});             // RLC B
+    cpu.regs().f = 0xE0;            // 1110 0000: Z N H set, C clear
+    cpu.regs().b = 0x84;            // 1000 0100
+    EXPECT_EQ(cpu.step(), 2);       // prefix + opcode
+    EXPECT_EQ(cpu.regs().b, 0x09);  // 0000 1001
+    EXPECT_EQ(cpu.regs().f, 0x10);  // C = 1 (old bit 7)
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+}
+
+TEST_F(CpuTest, CbRlcZeroResultSetsZ) {
+    load({0xCB, 0x07});   // RLC A
+    cpu.regs().f = 0x10;  // C set
+    cpu.regs().a = 0x00;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);
+    EXPECT_EQ(cpu.regs().f, 0x80);  // Z = 1 (computed, unlike RLCA), C = 0 (old bit 7)
+}
+
+TEST_F(CpuTest, CbRrcC) {
+    load({0xCB, 0x09});  // RRC C
+    cpu.regs().f = 0x00;
+    cpu.regs().c = 0x01;  // 0000 0001
+    cpu.step();
+    EXPECT_EQ(cpu.regs().c, 0x80);  // 1000 0000
+    EXPECT_EQ(cpu.regs().f, 0x10);  // C = 1 (old bit 0)
+}
+
+TEST_F(CpuTest, CbRlShiftsOldCarryIntoBit0) {
+    load({0xCB, 0x12});   // RL D
+    cpu.regs().f = 0x10;  // C = 1
+    cpu.regs().d = 0x41;  // 0100 0001
+    cpu.step();
+    EXPECT_EQ(cpu.regs().d, 0x83);  // 1000 0011: old C -> bit 0
+    EXPECT_EQ(cpu.regs().f, 0x00);  // C = 0 (old bit 7)
+}
+
+TEST_F(CpuTest, CbRrShiftsOldCarryIntoBit7) {
+    load({0xCB, 0x1B});   // RR E
+    cpu.regs().f = 0x10;  // C = 1
+    cpu.regs().e = 0x82;  // 1000 0010
+    cpu.step();
+    EXPECT_EQ(cpu.regs().e, 0xC1);  // 1100 0001: old C -> bit 7
+    EXPECT_EQ(cpu.regs().f, 0x00);  // C = 0 (old bit 0)
+}
+
+TEST_F(CpuTest, CbSlaShiftsInZero) {
+    load({0xCB, 0x24});   // SLA H
+    cpu.regs().f = 0x10;  // C = 1: Must not be shifted in
+    cpu.regs().h = 0x80;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().h, 0x00);  // 0 -> bit 0
+    EXPECT_EQ(cpu.regs().f, 0x90);  // 1001 0000: Z = 1, C = 1 (old bit 7)
+}
+
+TEST_F(CpuTest, CbSraKeepsSignBit) {
+    load({0xCB, 0x2D});   // SRA L
+    cpu.regs().f = 0xE0;  // 1110 0000: Z N H set, C clear
+    cpu.regs().l = 0x82;  // 1000 0010
+    cpu.step();
+    EXPECT_EQ(cpu.regs().l, 0xC1);  // 1100 0001: bit 7 copied
+    EXPECT_EQ(cpu.regs().f, 0x00);  // C = 0 (old bit 0)
+}
+
+TEST_F(CpuTest, CbSwapExchangesNibbles) {
+    load({0xCB, 0x37});   // SWAP A
+    cpu.regs().f = 0xF0;  // all flags set: SWAP must clear C too
+    cpu.regs().a = 0xF1;
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x1F);  // high and low nibbles exchanged
+    EXPECT_EQ(cpu.regs().f, 0x00);  // Z = 0, N = 0, H = 0, C = 0 (C always 0)
+}
+
+TEST_F(CpuTest, CbSrlShiftsInZero) {
+    load({0xCB, 0x3F});   // SRL A
+    cpu.regs().f = 0x10;  // C = 1: must not be shifted in
+    cpu.regs().a = 0x81;  // 1000 0001
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x40);  // 0100 0000: 0 -> bit 7
+    EXPECT_EQ(cpu.regs().f, 0x10);  // C = 1 (old bit 0)
+}
+
+TEST_F(CpuTest, CbSrlTakesCarryFromBit0) {
+    load({0xCB, 0x3F});  // SRL A
+    cpu.regs().f = 0x00;
+    cpu.regs().a = 0x01;  // 0000 0001
+    cpu.step();
+    EXPECT_EQ(cpu.regs().a, 0x00);  // 0 -> bit 7
+    EXPECT_EQ(cpu.regs().f, 0x90);  // Z = 1, C = 1 (old bit 0)
+}
+
+TEST_F(CpuTest, CbRlcHlIndirect) {
+    load({0xCB, 0x06});  // RLC (HL)
+    cpu.regs().setHl(0xC000);
+    mmu.write(0xC000, 0x85);            // 1000 0101
+    EXPECT_EQ(cpu.step(), 4);           // prefix + opcode + read + write
+    EXPECT_EQ(mmu.read(0xC000), 0x0B);  // 0000 1011
+}
