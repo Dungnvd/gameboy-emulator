@@ -17,13 +17,20 @@ public:
     // Set registers to DMG post-boot state (no boot ROM)
     void reset();
 
-    // Execute one instruction. Returns number of M-cycles taken
+    // Run one step: dispatch a pending interrupt, idle 1 M-cycle while halted
+    // or execute one instruction. Return number of M-cycles taken
     int step();
 
     Registers& regs() { return regs_; }
     const Registers& regs() const { return regs_; }
 
+    bool ime() const { return ime_; }
+
 private:
+    // Dispatch pending interrupt if IME = 1 and IE & IF != 0. Wake up HALT
+    // Return 5 M-cycles if dispatched, 0 otherwise
+    int serviceInterrupt();
+
     std::uint8_t fetch8();
     std::uint16_t fetch16();
 
@@ -100,5 +107,9 @@ private:
 
     Mmu& mmu_;
     Registers regs_;
+
+    bool ime_ = false;           // IME (Interrupt Master Enable)
+    bool imeScheduled_ = false;  // EI: set IME after next instruction
+    bool halted_ = false;        // HALT: sleep until IE & IF != 0
 };
 }  // namespace gb

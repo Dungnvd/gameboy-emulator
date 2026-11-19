@@ -1258,3 +1258,182 @@ TEST_F(CpuTest, CbSetHlIndirectKeepsSetBitSet) {
     EXPECT_EQ(cpu.step(), 4);
     EXPECT_EQ(mmu.read(0xC000), 0x80);  // bit 7 stays 1
 }
+// IE = 0xFFFF, IF = 0xFF0F
+// Bit: 0 = VBlank (0x40). 1 = STAT (0x48), 2 = Timer (0x50), 3 = Serial (0x58), 4 = Joypad (0x60)
+
+TEST_F(CpuTest, EiEnablesImeOnlyAfterNextInstruction) {
+    load({0xFB, 0x00});       // EI; NOP
+    EXPECT_FALSE(cpu.ime());  // post-boot: IME = 0
+
+    EXPECT_EQ(cpu.step(), 1);  // EI
+    EXPECT_FALSE(cpu.ime());   // not yet: delayed by one instruction
+
+    cpu.step();  // NOP
+    EXPECT_TRUE(cpu.ime());
+}
+
+TEST_F(CpuTest, DiClearsImeImmediately) {
+    load({0xFB, 0x00, 0xF3});  // EI; NOP; DI
+    cpu.step();                // EI
+    cpu.step();                // NOP -> IME = 1
+    EXPECT_EQ(cpu.step(), 1);  // DI
+    EXPECT_FALSE(cpu.ime());
+}
+
+TEST_F(CpuTest, DiRightAfterEiCancelsPendingEnable) {
+    load({0xFB, 0xF3, 0x00});  // EI; DI; NOP
+    cpu.step();                // EI: enable pending
+    cpu.step();                // DI: cancels it
+    cpu.step();                // NOP
+    EXPECT_FALSE(cpu.ime());
+}
+
+TEST_F(CpuTest, InterruptDispatchPushesPcAndJumpsToVector) {
+    load({0xFB, 0x00, 0x00});  // EI; NOP; NOP
+    cpu.step();                // EI
+    cpu.step();                // NOP -> IME = 1, PC = 0x0102
+    mmu.write(0xFFFF, 0x04);   // IE: Timer enabled
+    mmu.write(0xFF0F, 0x04);   // IF: Timer requested
+
+    EXPECT_EQ(cpu.step(), 5);           // dispatch instead of fetching NOP at 0x0102
+    EXPECT_EQ(cpu.regs().pc, 0x0050);   // Timer vector
+    EXPECT_EQ(cpu.regs().sp, 0xFFFC);   // SP 0xFFFE -> 0xFFFC
+    EXPECT_EQ(mmu.read(0xFFFD), 0x01);  // address high byte
+    EXPECT_EQ(mmu.read(0xFFFC), 0x02);  // address low byte
+    EXPECT_EQ(mmu.read(0xFF0F), 0x00);  // IF bit 2 cleared
+    EXPECT_EQ(mmu.read(0xFFFF), 0x04);  // IE unchanged: CPU never touches game's setting
+    EXPECT_FALSE(cpu.ime());            // no nested interrupts inside the handler
+}
+
+TEST_F(CpuTest, EiDelayDispatchesOnlyAfterNextInstruction) {
+    load({0xFB, 0x00});       // EI; NOP
+    mmu.write(0xFFFF, 0x01);  // IE: VBlank
+    mmu.write(0xFF0F, 0x01);  // IF: VBlank already pending
+
+    cpu.step();                // EI
+    EXPECT_EQ(cpu.step(), 1);  // NOP still runs: IME was 0 when this step began
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+
+    EXPECT_EQ(cpu.step(), 5);
+    EXPECT_EQ(cpu.regs().pc, 0x0040);  // VBlank vector
+}
+
+TEST_F(CpuTest, NoDispatchWhenImeClear) {
+    load({0x00});             // NOP
+    mmu.write(0xFFFF, 0x01);  // IE: VBlank
+    mmu.write(0xFF0F, 0x01);  // IF: VBlank, but IME = 0 (initial status)
+
+    EXPECT_EQ(cpu.step(), 1);  // NOP
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+    EXPECT_EQ(mmu.read(0xFF0F), 0x01);  // IF: request stays pending
+}
+
+TEST_F(CpuTest, NoDispatchWhenRequestNotEnabled) {
+    load({0xFB, 0x00, 0x00});  // EI; NOP; NOP
+    cpu.step();                // EI
+    cpu.step();                // NOP -> IME = 1 (after this)
+    mmu.write(0xFFFF, 0x02);   // IE: only STAT enabled
+    mmu.write(0xFF0F, 0x01);   // IF: only VBlank requested -> IE & IF = 0
+
+    EXPECT_EQ(cpu.step(), 1);  // NOP, No Dispatch success
+    EXPECT_EQ(cpu.regs().pc, 0x0103);
+    EXPECT_EQ(mmu.read(0xFF0F), 0x01);
+}
+
+TEST_F(CpuTest, UnusedUpperBitsNeverDispatch) {
+    load({0xFB, 0x00, 0x00});  // EI; NOP; NOP
+    cpu.step();                // EI
+    cpu.step();                // NOP -> IME = 1
+    mmu.write(0xFFFF, 0xFF);   // IE: all bits
+    mmu.write(0xFF0F, 0xE0);   // IF: 1110 0000, only bits 7 - 5, no interrupt
+
+    EXPECT_EQ(cpu.step(), 1);  // NOP
+    EXPECT_EQ(cpu.regs().pc, 0x0103);
+}
+
+TEST_F(CpuTest, LowestBitHasHighestPriority) {
+    load({0xFB, 0x00, 0x00});  // EI; NOP; NOP
+    cpu.step();                // EI
+    cpu.step();                // NOP -> IME = 1
+    mmu.write(0xFFFF, 0x1F);   // IE: all 5 interrupts
+    mmu.write(0xFF0F, 0x14);   // IF: 0001 0100, Joypad (bit 4) + Timer (bit 2)
+
+    EXPECT_EQ(cpu.step(), 5);
+    EXPECT_EQ(cpu.regs().pc, 0x0050);   // Timer wins (low bit first)
+    EXPECT_EQ(mmu.read(0xFF0F), 0x10);  // only Timer cleared, Joypad still pending
+}
+
+TEST_F(CpuTest, JoypadInterruptUsesVector0x60) {
+    load({0xFB, 0x00, 0x00});  // EI; NOP; NOP
+    cpu.step();                // EI
+    cpu.step();                // NOP -> IME = 1
+    mmu.write(0xFFFF, 0x10);   // IE: Joypad
+    mmu.write(0xFF0F, 0x10);   // IF: Joypad
+
+    cpu.step();
+    EXPECT_EQ(cpu.regs().pc, 0x0060);
+}
+
+TEST_F(CpuTest, RetiReturnsAndEnablesImeImmediately) {
+    load({0xD9});  // RETI
+    cpu.regs().sp = 0xD000;
+    mmu.write16(0xD000, 0x1234);  // return address on stack
+    mmu.write(0xFFFF, 0x01);      // IE: VBlank
+    mmu.write(0xFF0F, 0x01);      // IF: VBlank pending
+
+    EXPECT_EQ(cpu.step(), 4);  // fetch + pop low + pop high + load into PC
+    EXPECT_EQ(cpu.regs().pc, 0x1234);
+    EXPECT_EQ(cpu.regs().sp, 0xD002);
+    EXPECT_TRUE(cpu.ime());  // no delay, unlike EI
+
+    EXPECT_EQ(cpu.step(), 5);  // pending VBlank dispatched right away
+    EXPECT_EQ(cpu.regs().pc, 0x0040);
+}
+
+TEST_F(CpuTest, HaltStopsFetchingUntilInterrupt) {
+    load({0x76, 0x04});        // HALT; INC B
+    EXPECT_EQ(cpu.step(), 1);  // HALT
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+
+    EXPECT_EQ(cpu.step(), 1);  // halted: 1 M-cycle passes, nothing fetched
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().pc, 0x0101);
+    EXPECT_EQ(cpu.regs().b, 0x00);  // INC B never ran
+}
+
+TEST_F(CpuTest, HaltWakesWithoutDispatchWhenImeClear) {
+    load({0x76, 0x04});       // HALT; INC B
+    cpu.step();               // HALT (initial IME = 0)
+    cpu.step();               // still halted
+    mmu.write(0xFFFF, 0x04);  // IE: Timer
+    mmu.write(0xFF0F, 0x04);  // IF: Timer
+
+    EXPECT_EQ(cpu.step(), 1);  // INC B
+    EXPECT_EQ(cpu.regs().b, 0x01);
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+    EXPECT_EQ(mmu.read(0xFF0F), 0x04);  // nothing dispatched
+}
+
+TEST_F(CpuTest, HaltWakesAndDispatchesWhenImeSet) {
+    load({0xFB, 0x76, 0x00});  // EI; HALT; NOP
+    cpu.step();                // EI
+    cpu.step();                // HALT -> IME = 1 after it
+    cpu.step();                // halted
+    EXPECT_EQ(cpu.regs().pc, 0x0102);
+    mmu.write(0xFFFF, 0x04);  // IE: Timer
+    mmu.write(0xFF0F, 0x04);  // IF: Timer
+
+    cpu.step();  // wake up + dispatch
+    EXPECT_EQ(cpu.regs().pc, 0x0050);
+    EXPECT_EQ(mmu.read(0xFFFC), 0x02);  // low byte after HALT (0x0102)
+    EXPECT_EQ(mmu.read(0xFFFD), 0x01);
+}
+
+TEST_F(CpuTest, StopSkipsItsSecondByte) {
+    load({0x10, 0x00, 0x04});  // STOP (2 bytes: 0x10 0x00); INC B
+    EXPECT_EQ(cpu.step(), 1);
+    EXPECT_EQ(cpu.regs().pc, 0x0102);  // 0x00 after STOP is not run as NOP
+
+    cpu.step();  // INC B
+    EXPECT_EQ(cpu.regs().b, 0x01);
+}

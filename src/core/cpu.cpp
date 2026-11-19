@@ -13,13 +13,63 @@ void Cpu::reset() {
     regs_.setHl(0x014D);
     regs_.sp = 0xFFFE;
     regs_.pc = 0x0100;
+    ime_ = false;
+    imeScheduled_ = false;
+    halted_ = false;
+}
+
+int Cpu::serviceInterrupt() {
+    const std::uint8_t interruptFlag = mmu_.read(0xFF0F);          // IF
+    const int pending = mmu_.read(0xFFFF) & interruptFlag & 0x1F;  // IE & IF, bit 0 - 4
+    if (pending == 0) {
+        return 0;
+    }
+
+    halted_ = false;  // any pending interrupt wakes HALT, even with IME = 0
+    if (!ime_) {
+        return 0;  // No dispatch, no M-cycle taken
+    }
+
+    // Lowest set bit = highest priority
+    int bit = 0;
+    while ((pending & (1 << bit)) == 0) {
+        ++bit;
+    }
+
+    ime_ = false;  // no nested interrupts unless handler runs EI or RETI
+    mmu_.write(0xFF0F, static_cast<std::uint8_t>(interruptFlag & ~(1 << bit)));
+    call(static_cast<std::uint16_t>(0x40 + bit * 8));  // vector 0x40, 0x48, 0x50, 0x58, 0x60
+    return 5;
 }
 
 int Cpu::step() {
+    const int interruptCycles = serviceInterrupt();
+    if (interruptCycles > 0) {
+        return interruptCycles;
+    }
+
+    if (halted_) {
+        return 1;  // sleeping: 1 M-cycle passes, nothing fetched
+    }
+
+    if (imeScheduled_) {
+        // EI ran in previous step. Interrupts were already checked above
+        // so first dispatch can only happen after this instruction
+        ime_ = true;
+        imeScheduled_ = false;
+    }
+
     const std::uint8_t op = fetch8();
 
     if (op == 0x00) {
         // NOP
+        return 1;
+    }
+
+    if (op == 0x10) {
+        // STOP: 2 bytes (0x10 0x00). Low power mode until a button press
+        // No joypad yet -> skip second byte, behave like NOP
+        fetch8();
         return 1;
     }
 
@@ -34,8 +84,9 @@ int Cpu::step() {
     }
 
     if (op == 0x76) {
-        // HALT: must be checked before LD r, r' (both match 01 xxx xxx)
-        throw std::runtime_error("HALT not implemented yet");
+        // HALT: sleep until IE & IF != 0
+        halted_ = true;
+        return 1;
     }
 
     if ((op & 0xC0) == 0x40) {
@@ -332,6 +383,25 @@ int Cpu::step() {
         // 0xC7 = 11 000 111 (mask)
         // 0x38 = 00 111 000 (keep nnn in place -> already nnn * 8)
         call(static_cast<std::uint16_t>(op & 0x38));
+        return 4;
+    }
+
+    if (op == 0xF3) {
+        // DI (Disable Interrupts): IME (Interrupt Master Enable) = 0 immediately
+        ime_ = false;
+        return 1;
+    }
+
+    if (op == 0xFB) {
+        // EI (Enable Interrupts): IME = 1 after next instruction
+        imeScheduled_ = true;
+        return 1;
+    }
+
+    if (op == 0xD9) {
+        // RETI (RETurn from Interrupt): RET + IME = 1 immediately (no delay)
+        regs_.pc = pop16();
+        ime_ = true;
         return 4;
     }
 
