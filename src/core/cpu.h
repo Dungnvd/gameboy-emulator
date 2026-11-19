@@ -95,6 +95,7 @@ private:
     int executeCb(std::uint8_t op);
     // CB rotate / shift / swap, used for CB opcode with xx = 00
     // operation (yyy): 0 = RLC, 1 = RRC, 2 = RL, 3 = RR, 4 = SLA, 5 = SRA, 6 = SWAP, 7 = SRL
+    // operation 0 - 3: also reused by RLCA / RRCA / RLA / RRA
     // value: byte read from r8 selected by zzz
     // Return result, set flags: Z 0 0 C
     std::uint8_t rotateShift(int operation, std::uint8_t value);

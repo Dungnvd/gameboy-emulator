@@ -726,38 +726,15 @@ void Cpu::accFlagOp(int operation) {
     const bool oldC = regs_.getFlag(Flag::C);
 
     switch (operation) {
-        case 0: {
-            // RLCA: Rotate A left circularly: bit 7 -> bit 0 and -> C
-            // Flags: 0 0 0 C
-            const bool bit7 = (a & 0x80) != 0;
-            regs_.a = static_cast<std::uint8_t>((a << 1) | (bit7 ? 0x01 : 0));
-            setFlags(false, false, false, bit7);
+        case 0:
+        case 1:
+        case 2:
+        case 3:
+            // RLCA / RRCA / RLA / RRA = CB RLC / RRC / RL / RR on A (same operation index)
+            // Flags: 0 0 0 C (unlike CB version, Z is always 0)
+            regs_.a = rotateShift(operation, a);
+            setFlags(false, false, false, regs_.getFlag(Flag::C));
             break;
-        }
-        case 1: {
-            // RRCA: Rotate A right circularly: bit 0 -> bit 7 and -> C
-            // Flags: 0 0 0 C
-            const bool bit0 = (a & 0x01) != 0;
-            regs_.a = static_cast<std::uint8_t>((a >> 1) | (bit0 ? 0x80 : 0));
-            setFlags(false, false, false, bit0);
-            break;
-        }
-        case 2: {
-            // RLA: Rotate A left through carry: old C -> bit 0, bit 7 -> C
-            // Flags: 0 0 0 C
-            const bool bit7 = (a & 0x80) != 0;
-            regs_.a = static_cast<std::uint8_t>((a << 1) | (oldC ? 0x01 : 0));
-            setFlags(false, false, false, bit7);
-            break;
-        }
-        case 3: {
-            // RRA: Rotate A right through carry: old C -> bit 7, bit 0 -> C
-            // Flags: 0 0 0 C
-            const bool bit0 = (a & 0x01) != 0;
-            regs_.a = static_cast<std::uint8_t>((a >> 1) | (oldC ? 0x80 : 0));
-            setFlags(false, false, false, bit0);
-            break;
-        }
         case 4: {
             // DAA: Decimal Adjust Accumulator: fix A after a BCD ADD/ADC/SUB/SBC
             // Flags: Z - 0 C (N unchanged, H cleared and C only set, never cleared)
